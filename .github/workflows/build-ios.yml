@@ -74,7 +74,7 @@ jobs:
     # 换账号时如果 macos-15 也不可用，就把 runner 输入填成自建 Mac 的标签。
     #
     # 产物是 iPhone 用的 .app，ARCHS=arm64 与 runner 的 CPU 无关；Ren'Py 7.7.3 的
-    # lib/py2-mac-universal 是 universel binary，两种 CPU 都能跑。
+    # lib/py2-mac-universal 是 universal binary，两种 CPU 都能跑。
     runs-on: ${{ github.event.inputs.runner || 'macos-15' }}
     timeout-minutes: 120
 

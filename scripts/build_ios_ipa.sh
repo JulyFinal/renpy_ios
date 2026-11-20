@@ -79,7 +79,10 @@ OUT="$(cd "$OUT" && pwd)"
 XCODE_OUT="$OUT/xcode"
 BUILD_DIR="$OUT/xcode-build"
 rm -rf "$XCODE_OUT" "$BUILD_DIR"
-mkdir -p "$XCODE_OUT" "$BUILD_DIR"
+# 只能建 BUILD_DIR。$XCODE_OUT 千万不能提前 mkdir：ios.rpy:142 的逻辑是
+# "目标目录已存在 → 问你要不要重命名旧工程"，无头环境里 input() 直接
+# EOFError，整步就挂了。
+mkdir -p "$BUILD_DIR"
 
 # -----------------------------------------------------------------------------
 # 1) ios_create：生成 Xcode 工程 + base/（Ren'Py 运行时 + 游戏脚本）
