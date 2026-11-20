@@ -210,6 +210,20 @@ dist/payload/assets-manifest.json
 
 因为 ipa 是未签名的，直接双击装是不行的，必须过这些工具。
 
+已经打好的包放在 Release：
+
+* `milkytouch-1.0.0` → `MilkyTouch.ipa`（55 MB，不含素材）
+
+### 4.1.1 放素材的另一种办法（比走网络快）
+
+`UIFileSharingEnabled` 打开之后，用数据线接电脑：
+
+* **Finder**（macOS 10.15+）：选设备 → 文件 → 找到 app → 直接把 `game`
+  文件夹拖进去；
+* **Windows**：装 Apple Devices 或 iTunes，同样在「文件共享」里拖；
+* **SideStore/AltStore 安装的 app 都支持这个**；LiveContainer 里的 app
+  数据在 LiveContainer 自己的容器里，Finder 看不到，得走 4.2 的 zip 路线。
+
 ### 4.2 放素材
 
 1. 在 iPad 上把 Release 里的 `assets.part1.zip`、`assets.part2.zip` 下载下来
@@ -322,6 +336,21 @@ cd "$SDK" && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./renpy.sh <PROJECT> qu
 ```
 
 （`renpy.sh` 在 macOS 上，Windows 上换成 `renpy.exe`。）
+
+### 10. `ld: library 'python3.9' not found`
+
+renios 自带的 `prototype.xcodeproj` 里，Debug 配置写的是 `-lpython2.7`，
+Release 配置却写成 `-lpython3.9`，而 `prototype/prebuilt/{release,debug}/`
+里只有 `libpython2.7.a`（Ren'Py 7.x 是 Python 2.7）。所以 Release 链接必挂。
+
+`fix_project.py` 已经在处理：它扫 `prebuilt/release` 里真实存在的
+`libpythonX.Y.a`，把 pbxproj 里所有 `-lpythonX.Y` 统一成那个名字。
+
+### 11. `The Xcode project already exists. Would you like to rename...`
+
+`ios_create` 的目标目录只要已存在就会问这句话，无头环境里 `input()` 直接
+`EOFError`。所以 `build_ios_ipa.sh` 里 `rm -rf dist/xcode` 之后**不能**再
+`mkdir dist/xcode`——让 `ios_create` 自己建。
 
 ---
 
