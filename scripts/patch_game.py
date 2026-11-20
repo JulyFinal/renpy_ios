@@ -123,6 +123,7 @@ init 999 python:
 '''
 
 PATCH_RPY = "zz_ios_patch.rpy"
+DIAG_RPY = "zz_ios_diag.rpy"
 
 SKIP_DIRS = {"saves", "cache", "__pycache__", ".git", ".svn"}
 SKIP_FILES = {
@@ -276,6 +277,8 @@ def main(argv=None) -> int:
                     help="keep images/audio out of the ipa (default)")
     ap.add_argument("--no-split", dest="split", action="store_false",
                     help="bundle everything into the ipa")
+    ap.add_argument("--diag", action="store_true",
+                    help="inject zz_ios_diag.rpy: draws render geometry on screen")
     args = ap.parse_args(argv)
 
     sdk = os.path.abspath(args.sdk)
@@ -322,6 +325,14 @@ def main(argv=None) -> int:
         return 3
     shutil.copy2(patch_src, os.path.join(dst_game, PATCH_RPY))
     log("injected %s" % PATCH_RPY)
+
+    if args.diag:
+        diag_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), DIAG_RPY)
+        if os.path.isfile(diag_src):
+            shutil.copy2(diag_src, os.path.join(dst_game, DIAG_RPY))
+            log("injected %s (diagnostic overlay; remove before release)" % DIAG_RPY)
+        else:
+            log("WARNING: --diag given but %s is missing" % diag_src)
 
     build_rpy = BUILD_RPY % dict(
         name=name,

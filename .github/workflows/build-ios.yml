@@ -55,6 +55,11 @@ on:
         description: "runner 标签。默认 macos-15；也可填 macos-latest 或自建 macOS runner 的标签"
         required: false
         default: "macos-15"
+      diag:
+        description: "注入诊断浮层（把 virtual/physical/drawable 尺寸画到屏幕四角；排查显示错位用，别用于正式包）"
+        required: false
+        default: false
+        type: boolean
 
   push:
     tags:
@@ -155,6 +160,9 @@ jobs:
           SPLIT_ARG="--split"
           [ "$SPLIT" = "false" ] && SPLIT_ARG="--no-split"
 
+          DIAG_ARG=""
+          [ "${{ github.event.inputs.diag }}" = "true" ] && DIAG_ARG="--diag"
+
           python3 scripts/patch_game.py \
             --sdk "$SDK_DIR" \
             --game "$SRC" \
@@ -162,7 +170,7 @@ jobs:
             --name "$GAME" \
             --display-name "${{ github.event.inputs.display_name }}" \
             --version "1.0.0" \
-            $SPLIT_ARG
+            $SPLIT_ARG $DIAG_ARG
 
       # -----------------------------------------------------------------
       # 4. 仅 --no-split：把素材并进项目，这样它们才会被打进 ipa
@@ -230,7 +238,7 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.game || 'MilkyTouch' }}-ipa-unsigned
+          name: ${{ github.event.inputs.game || 'MilkyTouch' }}-ipa-unsigned${{ github.event.inputs.diag == 'true' && '-diag' || '' }}
           path: |
             dist/*.ipa
             dist/*.sha256
