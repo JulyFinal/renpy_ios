@@ -52,9 +52,9 @@ on:
         required: false
         default: ""
       runner:
-        description: "runner 标签。默认 macos-14（Apple Silicon）；也可填 macos-13（Intel）或自建 macOS runner 的标签"
+        description: "runner 标签。默认 macos-15；也可填 macos-latest 或自建 macOS runner 的标签"
         required: false
-        default: "macos-14"
+        default: "macos-15"
 
   push:
     tags:
@@ -68,15 +68,14 @@ env:
 
 jobs:
   build:
-    # Ren'Py 7.7.3 的 lib/py2-mac-universal 是 x86_64 + arm64 的 universal binary
-    # （已核对 fat header），两种 CPU 都能跑；产物是 iPhone 用的 .app，
-    # ARCHS=arm64 与 runner 的 CPU 无关。所以 runner 用哪个都能编，只是 arm64 更快。
+    # 实测过本仓库可用的标签（2025-11 探测）：macos-15 / macos-latest 能跑；
+    # macos-14 秒 cancel（"The configuration 'macos-14-arm64-us-default' is not
+    # supported"），macos-13 / macos-12 / macos-14-large 永远 queued。
+    # 换账号时如果 macos-15 也不可用，就把 runner 输入填成自建 Mac 的标签。
     #
-    # 注意：如果你的账号/仓库拿不到 GitHub 托管的 macOS runner（症状是 job 一直
-    # queued，或直接报 "The configuration 'macos-14-arm64-us-default' is not
-    # supported"），就把 runner 输入填成自建 macOS runner 的标签，或者干脆在本机
-    # / 云 Mac 上跑方式 B（scripts/build_ios_ipa.sh）。
-    runs-on: ${{ github.event.inputs.runner || 'macos-14' }}
+    # 产物是 iPhone 用的 .app，ARCHS=arm64 与 runner 的 CPU 无关；Ren'Py 7.7.3 的
+    # lib/py2-mac-universal 是 universel binary，两种 CPU 都能跑。
+    runs-on: ${{ github.event.inputs.runner || 'macos-15' }}
     timeout-minutes: 120
 
     steps:
