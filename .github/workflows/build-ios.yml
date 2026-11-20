@@ -51,6 +51,10 @@ on:
         description: "素材 Release tag（split=false 时必填；split=true 时 MilfyCity 这类构建期读图的游戏也必填）"
         required: false
         default: ""
+      runner:
+        description: "runner 标签。默认 macos-14（Apple Silicon）；也可填 macos-13（Intel）或自建 macOS runner 的标签"
+        required: false
+        default: "macos-14"
 
   push:
     tags:
@@ -64,13 +68,15 @@ env:
 
 jobs:
   build:
-    # macos-13 = Intel (x86_64)。用 Intel 而不是 macos-14：
-    #   1. arm64 macOS runner 在部分账号/私有仓库上是不可用的，会直接报
-    #      "The configuration 'macos-14-arm64-us-default' is not supported"；
-    #   2. Ren'Py 7.7.3 的 lib/py2-mac-universal 是 x86_64 + arm64 的
-    #      universal binary（已核对 fat header），Intel 机器能直接跑；
-    #   3. 产物是 iPhone 用的 .app，ARCHS=arm64 与运行 runner 的 CPU 无关。
-    runs-on: macos-13
+    # Ren'Py 7.7.3 的 lib/py2-mac-universal 是 x86_64 + arm64 的 universal binary
+    # （已核对 fat header），两种 CPU 都能跑；产物是 iPhone 用的 .app，
+    # ARCHS=arm64 与 runner 的 CPU 无关。所以 runner 用哪个都能编，只是 arm64 更快。
+    #
+    # 注意：如果你的账号/仓库拿不到 GitHub 托管的 macOS runner（症状是 job 一直
+    # queued，或直接报 "The configuration 'macos-14-arm64-us-default' is not
+    # supported"），就把 runner 输入填成自建 macOS runner 的标签，或者干脆在本机
+    # / 云 Mac 上跑方式 B（scripts/build_ios_ipa.sh）。
+    runs-on: ${{ github.event.inputs.runner || 'macos-14' }}
     timeout-minutes: 120
 
     steps:

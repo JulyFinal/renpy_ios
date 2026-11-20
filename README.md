@@ -101,6 +101,20 @@ CODE_SIGNING_ALLOWED=NO` → 组 `Payload/` 打 zip。
 
 整轮大约 10 分钟（MilkyTouch 完全不下载素材）。
 
+#### 如果 Actions 排不到 macOS runner
+
+GitHub 托管的 macOS runner 不是所有账号都有。两个典型症状：
+
+* 一两秒就 cancelled，注解写
+  `The configuration 'macos-14-arm64-us-default' is not supported`；
+* 一直 `queued`，`runner_id` 始终是 0，几十分钟都没人领。
+
+两种绕法：
+
+* **自建 runner**：找一台 Mac，装 GitHub Actions runner 并打上标签（例如
+  `my-mac`），然后 Run workflow 时把 `runner` 参数填成 `my-mac`；
+* **干脆不用 Actions**：直接在任意一台 Mac 上跑方式 B，脚本完全一样。
+
 #### 为什么 MilkyTouch 不用给素材，MilfyCity 必须给
 
 MilkyTouch 的脚本全是 `.rpyc`，构建期 Ren'Py 只做字节码转换，**不读任何图片**，
