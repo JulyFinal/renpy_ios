@@ -79,15 +79,23 @@ screen ios_diag():
 
     $ _dt = _ios_diag_text()
 
+    # 整屏紫红色边框：只要有任何一条边可见，就能确认诊断版在跑
+    add Solid("#ff00ff") xysize (1920, 6) xpos 0 ypos 0
+    add Solid("#ff00ff") xysize (1920, 6) xpos 0 ypos 1074
+    add Solid("#ff00ff") xysize (6, 1080) xpos 0 ypos 0
+    add Solid("#ff00ff") xysize (6, 1080) xpos 1914 ypos 0
+
     for _pos in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]:
         fixed:
             xpos _pos[0]
             ypos _pos[1]
             xanchor _pos[0]
             yanchor _pos[1]
-            text _dt size 28 color "#00ff00" outlines [(1, "#000000", 0, 0)]
+            vbox:
+                text "DIAG" size 80 color "#ff00ff" outlines [(3, "#000000", 0, 0)]
+                text _dt size 28 color "#00ff00" outlines [(1, "#000000", 0, 0)]
 
-    add Solid("#ff0000") xysize (140, 140) xpos 0 ypos 0
-    add Solid("#00ff00") xysize (140, 140) xalign 1.0 ypos 0
-    add Solid("#0000ff") xysize (140, 140) xpos 0 yalign 1.0
-    add Solid("#ffff00") xysize (140, 140) xalign 1.0 yalign 1.0
+    add Solid("#ff0000") xysize (200, 200) xpos 0 ypos 0
+    add Solid("#00ff00") xysize (200, 200) xalign 1.0 ypos 0
+    add Solid("#0000ff") xysize (200, 200) xpos 0 yalign 1.0
+    add Solid("#ffff00") xysize (200, 200) xalign 1.0 yalign 1.0
