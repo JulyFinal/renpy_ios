@@ -95,6 +95,19 @@ def target_name_from_pbxproj(pbx: str) -> str:
     return ""
 
 
+def _find_python_lib(project_dir: str) -> str:
+    """在 prebuilt/release（退而求其次 debug）里找 libpythonX.Y.a，返回 "pythonX.Y"。"""
+    for sub in ("release", "debug"):
+        d = os.path.join(project_dir, "prebuilt", sub)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            m = re.match(r"lib(python[0-9]+\.[0-9]+)\.a$", name)
+            if m:
+                return m.group(1)
+    return ""
+
+
 def patch_pbxproj(xcodeproj: str, bundle_id: str, product_name: str) -> tuple:
     pbx_path = os.path.join(xcodeproj, "project.pbxproj")
     with open(pbx_path, "r", encoding="utf-8", errors="replace") as f:
@@ -111,6 +124,19 @@ def patch_pbxproj(xcodeproj: str, bundle_id: str, product_name: str) -> tuple:
     pbx = re.sub(r"PRODUCT_NAME = [^;]*;", "PRODUCT_NAME = %s;" % product_name, pbx)
     pbx = re.sub(r"PRODUCT_BUNDLE_IDENTIFIER = [^;]*;",
                  "PRODUCT_BUNDLE_IDENTIFIER = %s;" % bundle_id, pbx)
+
+    # renios 自带的 prototype.xcodeproj 有个坑：Debug 配置写的是 -lpython2.7，
+    # Release 配置写的是 -lpython3.9，而 prototype/prebuilt/{debug,release}/ 里
+    # 只有 libpython2.7.a。于是 xcodebuild 在 Release 下链接时直接
+    # `ld: library 'python3.9' not found`。
+    # 这里不做版本猜测，直接扫 prebuilt/release 里真实存在的 libpython*.a，
+    # 把 pbxproj 里所有 -lpythonX.Y 统一成那个名字。
+    real_python_lib = _find_python_lib(os.path.dirname(xcodeproj))
+    if real_python_lib:
+        pbx, n = re.subn(r"-lpython[0-9]+\.[0-9]+", "-l" + real_python_lib, pbx)
+        log("pbxproj: %d 处 -lpythonX.Y -> -l%s" % (n, real_python_lib))
+    else:
+        log("pbxproj: WARNING 没在 prebuilt 里找到 libpython*.a，链接可能失败")
 
     with open(pbx_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(pbx)
