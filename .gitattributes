@@ -1,0 +1,25 @@
+# 统一 LF，否则 bash 脚本在 macOS runner 上会报 $'\r': command not found
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.py    text eol=lf
+*.rpy   text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+
+# 二进制 —— 这些绝不能让 git 做行尾转换
+*.rpyc  binary
+*.rpymc binary
+*.rpa   binary
+*.rpyb  binary
+*.ttf   binary
+*.otf   binary
+*.ttc   binary
+*.png   binary
+*.jpg   binary
+*.webp  binary
+*.ogg   binary
+*.mp3   binary
+*.ipa   binary
+*.zip   binary
+*.tar.zst binary

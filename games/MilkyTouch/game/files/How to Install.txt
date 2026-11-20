@@ -1,0 +1,39 @@
+[How to install]
+1. Download the whole "Milky Touch Story Mods by imgfylalbm" folder.
+2. Inside, you'll find 8 images folders labeled with mod names, the "ClaudiaAudio" folder, and 10 scripts.
+3. Take everything (9 folders & 10 scripts) and put them in the "game" folder.
+4. The script files will overwrite the original ones, and the folders should now be in the location "game/ClaudiaAudio", "game/ClaudiaCimages", "game/ClaudiaWimages", and so on.
+5. Enjoy.
+
+[Story Mods in Update Order & Starting Points]
+1. ClaudiaW: Claudia's extended romance (wedding) ending
+  → is inserted between her plane sex scene and the beach sex scene.
+2. OctaviaR: Octavia's extended romance ending
+  → starts right after her car sex scene.
+3. OctaviaC: Octavia's extended corruption ending
+  → is inserted before the start of her original corruption ending (the classroom sex scene).
+4. ClaudiaC: Claudia's extended corruption ending
+  → starts right after her MASK sex scene.
+5. KarenC: Karen's extended ending
+  → starts right after her threesome sex scene.
+6. KateAshC: Katelyn & Ashley's extended ending
+  → starts right after their threesome sex scene.
+7. MariaS: Maria's true harem ending
+  → starts right after the threesome sex scene with Octavia/Claudia.
+8. LOCKMAKER: LOCKMAKER's true harem ending
+  → starts right after the wedding sex scene with Riley.
+
+[Scripts for Each Mod]
+1. ClaudiaW: script_day22_Claudiabeach.rpy
+2. OctaviaR: script_day22_OctaviaVanilla.rpy
+3. OctaviaC: script_day22_octaviacending.rpy
+4. ClaudiaC: script_day22_claudiaBarSex.rpy
+5. KarenC: script_day22_KarenThreesome.rpy
+6. KateAshC: script_day22_ashkatethreesome.rpy
+7. MariaS: script_day22_OctaviaClaudia.rpy
+8. LOCKMAKER: script_day22_wedding.rpy
+
+p.s: The script_day22.rpy and script_day22_claudiaBarBJ.rpy files are provided to accommodate the newly added voice lines for Claudia's day 22 corruption endings.
+
+[New Voice Lines for Claudia's Day 22 Endings]
+Claudia's missing voice files from the vanilla version of the game can be found in the new "ClaudiaAudio" folder. These files were provided by KittenVox (Claudia's voice actress) herself. And because they overlap with ClaudiaC (Claudia's solo corruption ending) and MariaS (Claudia & Octavia's dual corruption ending)'s script files, I had to incorporate them into my mods, despite Bouwen (Godric)'s excellent work in sorting out the files and adding them to the game. I also normalized (increased) the volume of the voice files because they were far too low when compared to the other voice lines and the background music.

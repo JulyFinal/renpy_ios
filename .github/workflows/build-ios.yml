@@ -1,0 +1,241 @@
+name: Build unsigned iOS IPA
+
+# -----------------------------------------------------------------------------
+# 干什么：
+#   在 macOS runner 上用官方 Ren'Py SDK + renios DLC 把 games/<Game> 打成
+#   **未签名** .ipa，供 SideStore / AltStore / LiveContainer 自签安装。
+#
+# 为什么必须 macOS：
+#   ios_create / ios_populate（生成 Xcode 工程 + base/）在 Windows/Linux 也能跑，
+#   但把 .app 编译出来只能靠 xcodebuild。
+#
+# 素材怎么办（两条路）：
+#   split_assets = true  → ipa 里只有脚本、字体、翻译（几十 MB）。图片/音频/.rpa
+#                          由 tools/make_payload.py 打成外置素材包放 Release，
+#                          玩家在 iPad 上解压进 App 的 Documents/game*/。
+#   split_assets = false → 素材全部塞进 ipa（要几个 GB，自签会更慢）。
+#   两条路都要 assets_tag（素材 Release tag）——除非游戏不依赖构建期图片
+#   （MilkyTouch 就是，脚本是 .rpyc，构建期不读图；MilfyCity 不行，它在 init
+#   里就调 renpy.image_size()，见下面 2b 的注释）。
+# -----------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: "要打包的游戏（对应 games/<Game>/game）"
+        required: true
+        default: "MilkyTouch"
+        type: choice
+        options:
+          - MilkyTouch
+          - MilfyCity
+      renpy_version:
+        description: "Ren'Py SDK 版本（必须 >= 游戏的 script_version）"
+        required: true
+        default: "7.7.3"
+      split_assets:
+        description: "外置素材模式（ipa 只有几十 MB，素材另外放进 App 的 Documents）"
+        required: true
+        default: true
+        type: boolean
+      display_name:
+        description: "桌面图标下显示的名字（留空则用 game 名）"
+        required: false
+        default: ""
+      bundle_id:
+        description: "Bundle ID（留空则用 com.domain.<Game>）"
+        required: false
+        default: ""
+      assets_tag:
+        description: "素材 Release tag（split=false 时必填；split=true 时 MilfyCity 这类构建期读图的游戏也必填）"
+        required: false
+        default: ""
+
+  push:
+    tags:
+      - "build-*"
+
+env:
+  PYTHONIOENCODING: utf-8
+  # 无头跑 Ren'Py 必需：launcher 会起子进程做 dump，没显示器会崩
+  SDL_VIDEODRIVER: dummy
+  SDL_AUDIODRIVER: dummy
+
+jobs:
+  build:
+    # macos-14 = Apple Silicon。Ren'Py 7.7.3 的 lib/py2-mac-universal 是
+    # x86_64 + arm64 的 universal binary（已核对 fat header），不需要 Rosetta。
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------
+      # 1. Ren'Py SDK + renios DLC
+      #    renios 是**独立下载**的 DLC，必须解到 <SDK>/renios，
+      #    否则 launcher 的 ios_create/ios_populate 会直接拒绝执行。
+      # -----------------------------------------------------------------
+      - name: Download Ren'Py SDK and renios
+        id: sdk
+        env:
+          RENPY_VERSION: ${{ github.event.inputs.renpy_version || '7.7.3' }}
+        run: |
+          set -euo pipefail
+          V="$RENPY_VERSION"
+          echo "Ren'Py $V"
+
+          curl -fL --retry 5 --retry-delay 3 \
+            -o sdk.zip "https://www.renpy.org/dl/${V}/renpy-${V}-sdk.zip"
+          curl -fL --retry 5 --retry-delay 3 \
+            -o renios.zip "https://www.renpy.org/dl/${V}/renpy-${V}-renios.zip"
+
+          unzip -q sdk.zip
+          SDK_DIR="$PWD/renpy-${V}-sdk"
+          test -d "$SDK_DIR/renpy" || { echo "::error::SDK 解压后结构不对"; exit 1; }
+
+          # renios.zip 的顶层就是 renios/，解到 SDK 根目录即可
+          unzip -q renios.zip -d "$SDK_DIR"
+          test -d "$SDK_DIR/renios/buildlib" || { echo "::error::renios 没有解到 \$SDK/renios"; exit 1; }
+
+          chmod +x "$SDK_DIR/renpy.sh"
+          xattr -dr com.apple.quarantine "$SDK_DIR" 2>/dev/null || true
+
+          echo "sdk_dir=$SDK_DIR" >> "$GITHUB_OUTPUT"
+          du -sh "$SDK_DIR/renios"
+
+      # -----------------------------------------------------------------
+      # 2. 素材（可选）
+      #    make_payload.py 产出的 assets.partN.zip，每个顶层目录是
+      #    game/、game_part2/…… 解到同一层即可。
+      # -----------------------------------------------------------------
+      - name: Download external assets
+        id: assets
+        if: ${{ github.event.inputs.assets_tag != '' }}
+        env:
+          TAG: ${{ github.event.inputs.assets_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/assets"
+          rm -rf "$DEST"; mkdir -p "$DEST/zip" "$DEST/x"
+          gh release download "$TAG" --pattern '*.zip' --dir "$DEST/zip" --clobber
+          for f in "$DEST"/zip/*.zip; do
+            echo "extract $(basename "$f")"
+            unzip -q -o "$f" -d "$DEST/x"
+          done
+          du -sh "$DEST/x"
+          ls -1 "$DEST/x"
+          echo "dir=$DEST/x" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------
+      # 3. 组装项目：复制 game/、注入 zz_ios_patch.rpy、生成构建规则
+      # -----------------------------------------------------------------
+      - name: Patch game project
+        env:
+          GAME: ${{ github.event.inputs.game || 'MilkyTouch' }}
+          SDK_DIR: ${{ steps.sdk.outputs.sdk_dir }}
+        run: |
+          set -euo pipefail
+          SRC="games/$GAME/game"
+          test -d "$SRC" || { echo "::error::仓库里没有 $SRC"; exit 1; }
+
+          SPLIT="${{ github.event.inputs.split_assets }}"
+          SPLIT_ARG="--split"
+          [ "$SPLIT" = "false" ] && SPLIT_ARG="--no-split"
+
+          python3 scripts/patch_game.py \
+            --sdk "$SDK_DIR" \
+            --game "$SRC" \
+            --out "work/$GAME" \
+            --name "$GAME" \
+            --display-name "${{ github.event.inputs.display_name }}" \
+            --version "1.0.0" \
+            $SPLIT_ARG
+
+      # -----------------------------------------------------------------
+      # 4. 仅 --no-split：把素材并进项目，这样它们才会被打进 ipa
+      # -----------------------------------------------------------------
+      - name: Merge assets into project (no-split)
+        if: ${{ github.event.inputs.split_assets == 'false' }}
+        env:
+          GAME: ${{ github.event.inputs.game || 'MilkyTouch' }}
+          ASSETS_DIR: ${{ steps.assets.outputs.dir }}
+        run: |
+          set -euo pipefail
+          [ -n "${ASSETS_DIR:-}" ] || { echo "::error::split_assets=false 时必须给 assets_tag"; exit 1; }
+          for d in "$ASSETS_DIR"/*/; do
+            echo "merge $d"
+            cp -R "$d." "work/$GAME/game/"
+          done
+          du -sh "work/$GAME/game"
+
+      # -----------------------------------------------------------------
+      # 5. 生成 Xcode 工程 + 无签名编译 + 组 ipa
+      #
+      #    split 模式下如果给了素材，只把素材目录作为「构建期 media」传进去：
+      #    有些游戏在 init 里就调 renpy.image_size()（MilfyCity 的
+      #    scenes_gallery_setup.rpy:MaxScale2），项目里没有图会直接启动失败，
+      #    ios_create 拿不到 dump。这些目录通过 RENPY_IOS_GAME_DIR 临时挂进
+      #    searchpath，**不会**进 base/，最终仍由 iPad 上的 Documents/game*/ 提供。
+      # -----------------------------------------------------------------
+      - name: Build unsigned IPA
+        id: ipa
+        env:
+          GAME: ${{ github.event.inputs.game || 'MilkyTouch' }}
+          SDK_DIR: ${{ steps.sdk.outputs.sdk_dir }}
+          ASSETS_DIR: ${{ steps.assets.outputs.dir }}
+          SPLIT: ${{ github.event.inputs.split_assets }}
+        run: |
+          set -euo pipefail
+          sed -i '' 's/\r$//' scripts/*.sh 2>/dev/null || true
+          chmod +x scripts/*.sh
+
+          MEDIA_ARGS=""
+          if [ "$SPLIT" != "false" ] && [ -n "${ASSETS_DIR:-}" ]; then
+            for d in "$ASSETS_DIR"/*/; do
+              MEDIA_ARGS="$MEDIA_ARGS --media $d"
+            done
+            echo "build-time media:$MEDIA_ARGS"
+          fi
+
+          bash scripts/build_ios_ipa.sh \
+            --sdk "$SDK_DIR" \
+            --project "work/$GAME" \
+            --out dist \
+            --display-name "${{ github.event.inputs.display_name }}" \
+            --bundle-id "${{ github.event.inputs.bundle_id }}" \
+            --version "1.0.0" \
+            $MEDIA_ARGS
+
+      # -----------------------------------------------------------------
+      # 6. 产物
+      # -----------------------------------------------------------------
+      - name: Show result
+        run: |
+          ls -lh dist/
+          cat dist/*.sha256 || true
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.game || 'MilkyTouch' }}-ipa-unsigned
+          path: |
+            dist/*.ipa
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            work/**/log.txt
+            work/**/traceback.txt
+            dist/xcode/*.json
+          if-no-files-found: ignore
+          retention-days: 7

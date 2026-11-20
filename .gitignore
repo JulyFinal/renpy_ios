@@ -1,0 +1,22 @@
+# .rpa / 大素材 不进仓库（素材走 Release，见 README）
+*.rpa
+*.rpa.zst
+
+# 本地产物
+assets/
+work/
+dist/
+dists/
+payload.tar.zst
+manifest.json
+__pycache__/
+*.pyc
+
+# Python 虚拟环境（本地跑 tools/ 用，不进版本库）
+.venv/
+venv/
+
+# 系统
+.DS_Store
+Thumbs.db
+.vscode/
