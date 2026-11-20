@@ -64,9 +64,13 @@ env:
 
 jobs:
   build:
-    # macos-14 = Apple Silicon。Ren'Py 7.7.3 的 lib/py2-mac-universal 是
-    # x86_64 + arm64 的 universal binary（已核对 fat header），不需要 Rosetta。
-    runs-on: macos-14
+    # macos-13 = Intel (x86_64)。用 Intel 而不是 macos-14：
+    #   1. arm64 macOS runner 在部分账号/私有仓库上是不可用的，会直接报
+    #      "The configuration 'macos-14-arm64-us-default' is not supported"；
+    #   2. Ren'Py 7.7.3 的 lib/py2-mac-universal 是 x86_64 + arm64 的
+    #      universal binary（已核对 fat header），Intel 机器能直接跑；
+    #   3. 产物是 iPhone 用的 .app，ARCHS=arm64 与运行 runner 的 CPU 无关。
+    runs-on: macos-13
     timeout-minutes: 120
 
     steps:
