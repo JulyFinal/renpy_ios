@@ -71,6 +71,39 @@ init -2000 python:
             except Exception as _e:
                 print("[renpy-ios] cannot set SDL_IOS_ORIENTATIONS: %r" % (_e,))
 
+    # ------------------------------------------------------------------
+    # 0.5 构建期容忍缺图（MilfyCity 这类游戏会在 init 里量图片尺寸）
+    # ------------------------------------------------------------------
+    # 有些游戏在 init python 阶段就调 renpy.image_size()，比如 MilfyCity 的
+    # scripts/gui/computer/scenes_gallery/scenes_gallery_setup.rpy:4 里
+    # MaxScale2()/MinScale2() 会给画廊里每张图算缩放比例，而它们的调用点在
+    # 同一个 init python 块里（scenes_gallery_images.rpy 的 Scenes_GalleryItem(...)）。
+    #
+    # 我们的素材是**外置**的（iPad 上 Documents/game/），而 ios_create 阶段是
+    # 在 Mac 上跑的：项目里没有图片，renpy.image_size() 直接 IOError，
+    # 整个 init 失败 → ios_create 拿不到 dump → 构建失败。
+    #
+    # 以前的做法是 build_ios_ipa.sh --media <PC 上的素材目录>，但那要求 CI 先
+    # 下载/解压 1.1 GB 素材。这里改成把 renpy.image_size 包一层：**只在文件
+    # 真的不存在时**返回一个占位尺寸（1920x1080），并打一行警告。
+    # 游戏跑起来时素材都在，走的是真实尺寸，行为完全不变。
+    # 想关掉：设 RENPY_IOS_STRICT_IMAGES=1。
+
+    if not _ios_os.environ.get("RENPY_IOS_STRICT_IMAGES"):
+        try:
+            _renpy_ios_real_image_size = renpy.image_size
+
+            def _renpy_ios_image_size(im):
+                try:
+                    return _renpy_ios_real_image_size(im)
+                except Exception as e:
+                    print("[renpy-ios] image_size fallback (1920x1080) for %r: %r" % (im, e))
+                    return (1920, 1080)
+
+            renpy.image_size = _renpy_ios_image_size
+        except Exception as _e:
+            print("[renpy-ios] cannot wrap renpy.image_size: %r" % (_e,))
+
     def _renpy_ios_candidate_dirs():
         """
         返回按优先级排列的外部素材目录候选列表（绝对路径）。

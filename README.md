@@ -115,28 +115,34 @@ GitHub 托管的 macOS runner 不是所有账号都有。两个典型症状：
   `my-mac`），然后 Run workflow 时把 `runner` 参数填成 `my-mac`；
 * **干脆不用 Actions**：直接在任意一台 Mac 上跑方式 B，脚本完全一样。
 
-#### 为什么 MilkyTouch 不用给素材，MilfyCity 必须给
+#### 为什么两个游戏现在都「不用给素材」
 
-MilkyTouch 的脚本全是 `.rpyc`，构建期 Ren'Py 只做字节码转换，**不读任何图片**，
-所以纯源码就能出 ipa。
+MilkyTouch 的脚本全是 `.rpyc`，构建期 Ren'Py 只做字节码转换，**不读任何图片**。
 
-MilfyCity 在 `init` 里就调 `renpy.image_size()`：
+MilfyCity 会在 `init` 里调 `renpy.image_size()`：
 
 ```
 game/scripts/gui/computer/scenes_gallery/scenes_gallery_setup.rpy:4   MaxScale2()
 game/scripts/gui/computer/scenes_gallery/scenes_gallery_images.rpy:4  <- 在 init python 里调用
 ```
 
-项目里没有 `images/secret_gallery/Scenes/1.png` 就直接
+项目里没有 `images/secret_gallery/Scenes/1.png` 就会
 
 ```
 IOError: Couldn't find file 'images/secret_gallery/Scenes/1.png'.
 ```
 
-`ios_create` 取不到 dump，整轮失败。所以 CI 会把素材 zip 解到临时目录，再用
-`--media` 把它挂进 Ren'Py 的 searchpath（走 `RENPY_IOS_GAME_DIR` 环境变量 →
-`zz_ios_patch.rpy`）。**这些素材不会进 base/**，ipa 依然只有 51MB，运行时还是
-靠 iPad 上的 `Documents/game/`。
+`ios_create` 取不到 dump，整轮失败。**现在这个坑已经用补丁解决了**：
+`zz_ios_patch.rpy` 把 `renpy.image_size` 包了一层，**只在文件真的不存在时**
+返回占位尺寸 (1920,1080) 并打一行警告，于是纯源码（34.8 MB）就能出 ipa，
+CI 也不必下载 1.1 GB 素材。游戏真正跑起来时素材都在，走的是真实尺寸。
+
+想恢复严格行为（缺图就报错）：构建时设 `RENPY_IOS_STRICT_IMAGES=1`。
+
+`build_ios_ipa.sh --media <dir>` 这个开关还留着：极少见的情况下你希望构建期就
+用真实尺寸（比如 init 里按图片真实宽高算坐标），可以把 PC 上的素材目录挂进去
+（走 `RENPY_IOS_GAME_DIR` → `zz_ios_patch.rpy`）。**这些素材不会进 base/**，
+ipa 依然是 51 MB，运行时还是靠设备上的 `Documents/game*/`。
 
 ### 方式 B：本地 macOS
 
@@ -345,10 +351,16 @@ MilfyCity 的 `scripts/gui/computer/scenes_gallery/scenes_gallery_setup.rpy` 定
 `MaxScale2()`，而 `scenes_gallery_images.rpy:4` 在 `init python` 里对一堆图片调它。
 构建项目里没有那些图，`renpy.image_size()` 直接抛 `IOError`，`ios_create` 因此
 拿不到 dump（报错是好几步之外的 `Launching the project failed.` + `error: Invalid
-window`，真实原因藏在子进程输出里，见坑 9）。
+window`，真实原因藏在子进程输出里，见坑 9）。以前要用 `--media` 把素材塞进去，
+现在不用了。
 
-解法就是 `--media`：把外置素材目录通过 `RENPY_IOS_GAME_DIR` 临时塞进
-`config.searchpath`，dump 完它就不参与了，`base/` 里不会有这些文件。
+**现在的解法**：`zz_ios_patch.rpy` 在 `init -2000` 把 `renpy.image_size` 包了一层，
+**只在文件真的不存在时**返回占位尺寸 `(1920, 1080)` 并打一行
+`[renpy-ios] image_size fallback ...` 警告。构建期缺图不再是致命错误，纯源码
+（MilfyCity 只有 34.8 MB）就能出 ipa；游戏真正跑起来时素材都在，走真实尺寸。
+
+想恢复严格行为：构建时设 `RENPY_IOS_STRICT_IMAGES=1`。真需要构建期就用真实
+尺寸时，`build_ios_ipa.sh --media <dir>` 仍然可用（走 `RENPY_IOS_GAME_DIR`）。
 
 ### 9. `ios_create` 失败时的报错会骗人
 
