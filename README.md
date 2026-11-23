@@ -249,6 +249,11 @@ LiveContainer 默认 `LCOrientationLock = Disabled`，此时它没有把宿主�
 用 SideStore / AltStore / Sideloadly 装的不需要这一步（app 用自己 plist 里
 声明的横屏方向）。
 
+设好之后应该是这样（iPhone Air，2736x1260 屏幕，1920x1080 内容等比铺满高度，
+左右各 249 像素黑边，属正常）：
+
+![MilkyTouch 横屏正常显示](docs/milky_fixed.png)
+
 ### 4.2 放素材
 
 1. 在 iPad 上把 Release 里的 `assets.part1.zip`、`assets.part2.zip` 下载下来
