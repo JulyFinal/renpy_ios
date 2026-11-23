@@ -220,6 +220,7 @@ dist/payload/assets-manifest.json
 
 * `milkytouch-1.0.1` → `MilkyTouch.ipa`（58 MB，不含素材，含显示兜底补丁）
 * `milkytouch-1.0.0` → 首个可用版本（同样不含素材，但没有横屏兜底）
+* `milfyCity-1.0.0` → `MilfyCity.ipa`（56 MB，不含素材；素材用 PC 版 `game/` 里的媒体文件）
 * `milkytouch-diag1` / `diag2` → 排查显示问题时的诊断包，可以忽略
 
 **LiveContainer 用户必须先看 4.1.2**（不改朝向锁，画面只会显示左上角一条）。
