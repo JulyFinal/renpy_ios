@@ -106,7 +106,15 @@ init -100 python:
         return rv
 
     def _box_choose(slug):
-        """写 current_game.txt 然后退出 App，下次启动就进这个游戏。"""
+        """写 current_game.txt，然后让 Ren'Py 就地重启进这个游戏。
+
+        为什么用 utter_restart() 而不是 quit()：
+        Ren'Py 的脚本列表是在 init 代码之前枚举的，所以运行中没法换游戏脚本。
+        utter_restart() 会抛 UtterRestartException，被 renpy/bootstrap.py 第
+        366-371 行接住 → renpy.reload_all() → 重新跑 renpy.main.main()：
+        重新读 current_game.txt、重新算 searchpath、重新枚举脚本。整个 App
+        不会退出，用户也就不会看到「点一下 → 退回桌面 → 再点图标」。
+        """
         d = _box_docs()
         if not d:
             return
@@ -120,7 +128,7 @@ init -100 python:
             renpy.notify("写入失败: %s" % fn)
             return
 
-        renpy.quit()
+        renpy.utter_restart()
 
     def _box_rescan():
         store._box_items = _box_scan()

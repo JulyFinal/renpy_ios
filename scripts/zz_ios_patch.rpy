@@ -368,3 +368,46 @@ init -1950 python:
             pass
 
     _renpy_ios_install_log_tee()
+
+# =============================================================================
+# 0.7 节：RenPyBox 模式下的"回到选择器"悬浮按钮
+#
+# 为什么要它：utter_restart() 能在同一个进程里换游戏，但进去之后如果没有出口，
+# 用户想换游戏还是得杀掉 App。这里在右上角放一个半透明小按钮，点一下就是
+# "不写 current_game.txt 再 utter_restart" —— main.py 的 override 读不到文件
+# 就回落到 picker 模式，于是回到选择器。
+#
+# 只在 box 模式且确实选中了某个游戏时才挂（RENPY_IOS_BOX + RENPY_IOS_SLUG），
+# 所以选择器界面本身和普通单游戏包都不会看到它。文字用 ASCII，避免某些游戏
+# 的中文字体缺字形显示成豆腐块。
+# =============================================================================
+
+screen renpybox_home():
+    zorder 100
+    button:
+        xalign 1.0
+        yalign 0.0
+        xoffset -12
+        yoffset 10
+        padding (12, 6)
+        background "#00000055"
+        hover_background "#000000aa"
+        action Function(renpy.utter_restart)
+        text "<< GAMES" size 26 color "#ffffffaa" hover_color "#ffffff"
+
+
+init 998 python:
+
+    def _renpy_ios_install_box_home():
+        try:
+            if _ios_os.environ.get("RENPY_IOS_BOX", "") != "1":
+                return
+            if not _ios_os.environ.get("RENPY_IOS_SLUG", ""):
+                return
+            if "renpybox_home" not in renpy.config.overlay_screens:
+                renpy.config.overlay_screens.append("renpybox_home")
+            print("[renpy-ios] box: home button installed")
+        except Exception:
+            pass
+
+    _renpy_ios_install_box_home()
