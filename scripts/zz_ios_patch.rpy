@@ -301,3 +301,70 @@ init -2000 python:
 
     _renpy_ios_apply()
     _renpy_ios_fix_display_metrics()
+
+# =============================================================================
+# 0.6 节：把 stdout/stderr 同时写进 <Documents>/renpybox_log.txt（RenPyBox 专用）
+#
+# 为什么需要：Ren'Py 在 iOS 上（renpy/log.py 里 `if renpy.ios: self.file =
+# real_stdout`）**不写 log.txt**，而 launchd 起的 App 的 stdout 又留不下来——
+# 出错时什么都看不到。box_main_patch.py 注入的 bootstrap 会设
+# RENPY_IOS_BOX_DOCS=<Documents>，这里就借它把 print 落盘，方便诊断。
+#
+# 只在 box 模式生效（RENPY_IOS_BOX_DOCS 存在），普通单游戏包不受影响。
+# 超过 4MB 会重开一个空文件，避免无限增长。
+# =============================================================================
+
+init -1950 python:
+
+    def _renpy_ios_install_log_tee():
+        try:
+            docs = _ios_os.environ.get("RENPY_IOS_BOX_DOCS", "")
+            if not docs:
+                return
+            fn = _ios_os.path.join(docs, "renpybox_log.txt")
+            try:
+                if _ios_os.path.exists(fn) and _ios_os.path.getsize(fn) > 4 * 1024 * 1024:
+                    _ios_os.unlink(fn)
+            except Exception:
+                pass
+            f = open(fn, "ab")
+            f.write("\n\n==== renpybox start ====\n")
+            f.flush()
+
+            class _RenpyIosTee(object):
+                def __init__(self, stream, logf):
+                    self.stream = stream
+                    self.logf = logf
+
+                def write(self, s):
+                    try:
+                        self.stream.write(s)
+                    except Exception:
+                        pass
+                    try:
+                        # py2 的 str 就是 bytes；unicode 要编码。py3 反之，所以按
+                        # bytes 判断，两种运行环境都能正确落盘。
+                        if not isinstance(s, bytes):
+                            s = s.encode("utf-8", "replace")
+                        self.logf.write(s)
+                        self.logf.flush()
+                    except Exception:
+                        pass
+
+                def flush(self):
+                    for o in (self.stream, self.logf):
+                        try:
+                            o.flush()
+                        except Exception:
+                            pass
+
+                def isatty(self):
+                    return False
+
+            _ios_sys.stdout = _RenpyIosTee(_ios_sys.stdout, f)
+            _ios_sys.stderr = _RenpyIosTee(_ios_sys.stderr, f)
+            print("[renpybox] stdout log -> %s" % (fn,))
+        except Exception:
+            pass
+
+    _renpy_ios_install_log_tee()

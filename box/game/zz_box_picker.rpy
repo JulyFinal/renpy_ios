@@ -26,8 +26,20 @@ init -100 python:
     _box_font = _box_os.environ.get("RENPY_BOX_FONT", "fonts/SourceHanSansLite.ttf")
 
     def _box_docs():
-        """App 的 Documents 目录（main.py 注入的 RENPY_IOS_DOCS）。"""
-        return _box_os.environ.get("RENPY_IOS_DOCS", "")
+        """App 的 Documents 目录。
+
+        两个环境变量名都认：RENPY_IOS_BOX_DOCS 是 base/main.py 注入块设的，
+        RENPY_IOS_DOCS 是早期版本用的名字（保留兼容）。都拿不到时再从
+        config.savedir（= <Documents>/saves/<slug>）反推。
+        """
+        for _k in ("RENPY_IOS_BOX_DOCS", "RENPY_IOS_DOCS"):
+            _v = _box_os.environ.get(_k, "")
+            if _v:
+                return _v
+        try:
+            return _box_os.path.dirname(_box_os.path.dirname(renpy.config.savedir))
+        except Exception:
+            return ""
 
     def _box_games_root():
         d = _box_docs()
@@ -195,7 +207,7 @@ screen _box_picker():
                         text "[_title!q]" style "box_item"
                         text "[_size!q]" style "box_meta" yalign 0.5 xoffset 20
 
-                    text "进入  ▸" style "box_enter" xalign 0.97 yalign 0.5
+                    text "进入  >" style "box_enter" xalign 0.97 yalign 0.5
 
     else:
 

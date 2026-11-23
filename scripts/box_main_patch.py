@@ -208,6 +208,26 @@ def log(msg: str) -> None:
     print(f"[box_main_patch] {msg}")
 
 
+def ensure_utf8_decl(text: str) -> str:
+    """保证 base/main.py 带 UTF-8 编码声明。
+
+    这**不是**可选项。base/main.py 由 Ren'Py 7.7.3 内嵌的 **Python 2.7** 执行，
+    而本文件注入的 OVERRIDE 里有中文注释/文档字符串。按 PEP 263，py2 在没有
+    coding 声明时遇到非 ASCII 字节会直接::
+
+        SyntaxError: Non-ASCII character '\\xe4' ... but no encoding declared
+
+    结果就是 App 启动瞬间脚本解析失败 —— 表现是**整屏全黑、没有任何日志、没有
+    任何 .pyc/缓存生成**（实测踩过一次，排查了很久）。所以这里无条件补上声明，
+    声明放在第 1 行即可（PEP 263 允许第 1 或第 2 行）。
+    """
+
+    for line in text.split("\n")[:2]:
+        if "coding" in line:
+            return text
+    return "# -*- coding: utf-8 -*-\n" + text
+
+
 def patch_main_py(main_py: Path) -> bool:
     if not main_py.is_file():
         log(f"ERROR: {main_py} not found")
@@ -217,6 +237,8 @@ def patch_main_py(main_py: Path) -> bool:
 
     if MARKER in text:
         log("base/main.py already patched, skipping")
+        text = ensure_utf8_decl(text)
+        main_py.write_text(text, encoding="utf-8", errors="surrogateescape")
         return True
 
     idx = text.find("\ndef main(")
@@ -227,10 +249,11 @@ def patch_main_py(main_py: Path) -> bool:
         return False
 
     text = text[: idx + 1] + OVERRIDE + "\n\n" + text[idx + 1 :]
+    text = ensure_utf8_decl(text)
 
     main_py.write_text(text, encoding="utf-8", errors="surrogateescape")
 
-    log(f"patched {main_py} (+{len(OVERRIDE)} bytes)")
+    log(f"patched {main_py} (+{len(OVERRIDE)} bytes, utf-8 decl ensured)")
     return True
 
 
