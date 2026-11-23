@@ -34,9 +34,19 @@ box/
   game/zz_box_picker.rpy   RenPyBox 的开局选择器（零素材，只用 Solid + 文字）
 games/
   <Game>/game/         游戏脚本 + 字体 + 翻译（几十 MB，进 git）
+docs/
+  *.png / *.jpg        真机截图（README 里引用）
 .github/workflows/
   build-ios.yml        云端打包（macOS runner，mode=game / mode=box）
 ```
+
+已发布的成品（都在 [Releases](https://github.com/JulyFinal/renpy_ios/releases)）：
+
+| tag | 内容 |
+| --- | --- |
+| `renpybox-1.0.1` | **通用引擎**：一个 app 装多个游戏，开局选择（推荐） |
+| `milkytouch-1.0.1` | MilkyTouch 单独包（不用 box 时用，55MB） |
+| `milfyCity-1.0.0` | MilfyCity 单独包（56MB，需自己放素材） |
 
 `renpy_ios` 只放**代码和脚本**。图片/音频/`.rpa` 这些几百 MB 到几 GB 的素材
 不进仓库，走「外置素材包」：打成 zip 放到 GitHub Release，你在 iPad 上用
@@ -192,6 +202,12 @@ bash scripts/build_ios_ipa.sh ... \
 | 存档 | `<App>/Documents/saves/<slug>/`（每个游戏独立，互不污染） |
 | 当前选择 | `<App>/Documents/current_game.txt`（一次性的，读完就删） |
 
+实测效果（iPhone Air / iOS 27.2 / LiveContainer 3.8.14）：
+
+![选择器](docs/renpybox_picker.png)
+
+![进入游戏](docs/renpybox_milkytouch.jpg)
+
 ### 怎么打
 
 Actions → **Build unsigned iOS IPA** → Run workflow：
@@ -234,12 +250,20 @@ bash scripts/build_ios_ipa.sh \
    `<App>/Documents/games/` 下。Windows 上用 Apple Devices / iTunes 的
    「文件共享」直接拖，macOS 用 Finder 的「文件」，或者用 USB 工具（本仓库
    调试时用的是 `pymobiledevice3` 的 AFC）。
-3. 打开 app → 选择器里点这个游戏 → app 会退出 → **再点一次图标**就进游戏了。
+3. 打开 app → 选择器里点这个游戏 → **直接进游戏**，不用退出再点一次。
 
-> 为什么要退出再点一次：Ren'Py 的脚本列表是在 init 代码之前枚举的，
-> 同一个进程里没法换一套脚本。选择器把选择写进 `current_game.txt` 后退出，
-> 下次启动 `base/main.py` 读到文件就把对应游戏的目录插进 searchpath。
-> 再退出（或杀进程）再打开，就回到选择器。
+> **换游戏不用杀 App**：选择器点游戏时调用 `renpy.utter_restart()`
+> （不是 `renpy.quit()`）。它会抛 `UtterRestartException`，被
+> `renpy/bootstrap.py:366-371` 接住 → `renpy.reload_all()` → 重新跑
+> `renpy.main.main()`：重新读 `current_game.txt`、重算 searchpath、重新枚举脚本。
+> 整个过程在同一个进程里完成，用户看到的就是「点一下 → 进入游戏」。
+>
+> 进游戏后**右上角**有一个半透明 `<< GAMES` 小按钮（`config.overlay_screens`
+> 挂的 `renpybox_home` 屏），点它会不写选择文件直接重启，回到选择器。
+> 这个按钮在真机上是**实验性**的（有的游戏右上角 UI 会压住它），不用也没关系——
+> 退出 App 再打开本来就会回到选择器。
+
+早期版本是「写文件 → `renpy.quit()` → 用户再点图标」，已经不需要了。
 
 ### 它是怎么实现的
 
@@ -258,6 +282,24 @@ base/picker/   选择器（zz_box_picker.rpyc + 中文字体 SourceHanSansLite.t
 ```
 
 `base/game` 永远在 searchpath 里，所以显示修正、`image_size` 容错对每个游戏都生效。
+
+启动/切换时序（`renpy/bootstrap.py:330-391` 的 `while` 循环）：
+
+1. `renpy.main.main()` → `config.init()` → 调我们的 `predefined_searchpath()`
+   （在这里读 `current_game.txt` 并立刻删掉，所以它是「一次性」的）；
+2. 按 searchpath **枚举并加载脚本** —— 这一步在 init 代码**之前**，
+   所以游戏跑起来之后没法原地换一套脚本；
+3. 跑 init 代码 → 主循环；
+4. 选择器里点游戏 → 写 `current_game.txt` → `renpy.utter_restart()`
+   → 抛 `UtterRestartException` → bootstrap 接住 → `renpy.reload_all()`
+   → **回到第 1 步**（同一进程，App 不退出）。
+
+⚠️ 第 1 步执行的是 `base/main.py`，它跑在 Ren'Py 自带的 **Python 2.7** 上。
+注入的代码里有中文注释，所以第一行**必须**是 `# -*- coding: utf-8 -*-`，
+否则 py2 直接 `SyntaxError` → 「启动瞬间全黑、零日志」（坑 13）。
+`scripts/box_main_patch.py` 的 `ensure_utf8_decl()` 会自动补。同理，注入代码
+本身也要保持 **py2 兼容**（不能用 f-string、`pathlib`、`print(..., file=)` 之外
+的 py3 特性时小心）。
 
 ---
 
@@ -539,6 +581,27 @@ draw.drawable_viewport = (249.0, 0.0, 2238.0, 1260.0)   # 2736x1260 屏幕里铺
 （可用 `RENPY_IOS_ORIENTATIONS` 覆盖，`none` 关闭），以及把
 `pygame_sdl2.display.get_size` / `get_drawable_size` 在「上报竖屏」时交换宽高。
 兜底只能把画面从「只露左上角一条」改善成「露出左侧 45%」，**根治仍然靠朝向锁**。
+
+### 13. RenPyBox 启动全黑、没有任何日志 —— `base/main.py` 缺 UTF-8 编码声明
+
+症状极其误导：点图标后**整屏全黑**，没有 `log.txt`、没有 `renpybox_log.txt`、
+没有 `base/game/cache/`、也没有崩溃报告，看起来像容器/渲染问题。真相是：
+
+`base/main.py` 由 Ren'Py 内嵌的 **Python 2.7** 执行，而 `scripts/box_main_patch.py`
+注入的 bootstrap 里有中文注释。按 PEP 263，**没有 coding 声明时 py2 遇到非 ASCII
+字节直接报错**，也就是脚本在 App 启动的瞬间就解析失败：
+
+```
+SyntaxError: Non-ASCII character '\xe4' in file .../base/main.py on line 1,
+but no encoding declared; see http://python.org/dev/peps/pep-0263/
+```
+
+修法：`base/main.py` **第一行**必须是 `# -*- coding: utf-8 -*-`。
+`scripts/box_main_patch.py` 的 `ensure_utf8_decl()` 会无条件补上（幂等）。
+
+> 排查陷阱：`compile(bytes)`、`py_compile.compile()` **都不会**报这个错，
+> 只有真正「把文件当脚本执行」才会。用 SDK 自带的 py2
+> （`lib/py2-windows-x86_64/python.exe`）跑一次脚本文件才是可靠判据。
 
 ---
 
