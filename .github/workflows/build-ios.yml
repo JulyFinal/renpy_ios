@@ -22,8 +22,16 @@ name: Build unsigned iOS IPA
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "box = 通用引擎（一个 ipa 装多个游戏，游戏放 App 的 Documents/games/）；game = 单独打一个游戏"
+        required: true
+        default: "game"
+        type: choice
+        options:
+          - game
+          - box
       game:
-        description: "要打包的游戏（对应 games/<Game>/game）"
+        description: "要打包的游戏（对应 games/<Game>/game）；mode=box 时忽略"
         required: true
         default: "MilkyTouch"
         type: choice
@@ -146,8 +154,10 @@ jobs:
 
       # -----------------------------------------------------------------
       # 3. 组装项目：复制 game/、注入 zz_ios_patch.rpy、生成构建规则
+      #    mode=box 时跳过（场景 3b 走通用引擎）
       # -----------------------------------------------------------------
       - name: Patch game project
+        if: ${{ github.event.inputs.mode != 'box' }}
         env:
           GAME: ${{ github.event.inputs.game || 'MilkyTouch' }}
           SDK_DIR: ${{ steps.sdk.outputs.sdk_dir }}
@@ -173,10 +183,27 @@ jobs:
             $SPLIT_ARG $DIAG_ARG
 
       # -----------------------------------------------------------------
+      # 3b. mode=box：组装 RenPyBox 通用引擎项目（不含任何游戏）
+      #     游戏在 iPad 上以 <Documents>/games/<slug>/game/ 的形式存在，
+      #     由 scripts/box_main_patch.py 改写后的 base/main.py 选择加载。
+      # -----------------------------------------------------------------
+      - name: Assemble RenPyBox project
+        if: ${{ github.event.inputs.mode == 'box' }}
+        env:
+          SDK_DIR: ${{ steps.sdk.outputs.sdk_dir }}
+        run: |
+          set -euo pipefail
+          python3 scripts/box_project.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --sdk "$SDK_DIR" \
+            --out "work/RenPyBox" \
+            --clean
+
+      # -----------------------------------------------------------------
       # 4. 仅 --no-split：把素材并进项目，这样它们才会被打进 ipa
       # -----------------------------------------------------------------
       - name: Merge assets into project (no-split)
-        if: ${{ github.event.inputs.split_assets == 'false' }}
+        if: ${{ github.event.inputs.split_assets == 'false' && github.event.inputs.mode != 'box' }}
         env:
           GAME: ${{ github.event.inputs.game || 'MilkyTouch' }}
           ASSETS_DIR: ${{ steps.assets.outputs.dir }}
@@ -218,14 +245,22 @@ jobs:
             echo "build-time media:$MEDIA_ARGS"
           fi
 
+          if [ "${{ github.event.inputs.mode }}" = "box" ]; then
+            PROJECT="work/RenPyBox"
+            BOX_ARG="--box"
+          else
+            PROJECT="work/$GAME"
+            BOX_ARG=""
+          fi
+
           bash scripts/build_ios_ipa.sh \
             --sdk "$SDK_DIR" \
-            --project "work/$GAME" \
+            --project "$PROJECT" \
             --out dist \
             --display-name "${{ github.event.inputs.display_name }}" \
             --bundle-id "${{ github.event.inputs.bundle_id }}" \
             --version "1.0.0" \
-            $MEDIA_ARGS
+            $BOX_ARG $MEDIA_ARGS
 
       # -----------------------------------------------------------------
       # 6. 产物
@@ -238,7 +273,7 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.game || 'MilkyTouch' }}-ipa-unsigned${{ github.event.inputs.diag == 'true' && '-diag' || '' }}
+          name: ${{ github.event.inputs.mode == 'box' && 'RenPyBox' || (github.event.inputs.game || 'MilkyTouch') }}-ipa-unsigned${{ github.event.inputs.diag == 'true' && '-diag' || '' }}
           path: |
             dist/*.ipa
             dist/*.sha256
@@ -254,5 +289,6 @@ jobs:
             work/**/log.txt
             work/**/traceback.txt
             dist/xcode/*.json
+            dist/xcode/ios-box.json
           if-no-files-found: ignore
           retention-days: 7

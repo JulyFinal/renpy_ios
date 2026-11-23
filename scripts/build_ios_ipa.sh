@@ -43,6 +43,7 @@ VERSION="1.0.0"
 BUILD_NUMBER="1"
 MEDIA=""
 KEEP_XCODE_BUILD="0"
+BOX="0"
 
 log() { printf '\033[1;36m[build_ipa]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[build_ipa] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -58,6 +59,7 @@ while [ $# -gt 0 ]; do
         --build-number) BUILD_NUMBER="$2"; shift 2 ;;
         --media)        MEDIA="${MEDIA:+$MEDIA:}$2"; shift 2 ;;
         --keep-xcode-build) KEEP_XCODE_BUILD="1"; shift ;;
+        --box)          BOX="1"; shift ;;
         -h|--help)      sed -n '2,40p' "$0"; exit 0 ;;
         *)              die "unknown argument: $1" ;;
     esac
@@ -108,11 +110,22 @@ log "ios_create -> $XCODE_OUT"
 [ -d "$XCODE_OUT/base" ] || die "ios_create produced no base/ directory"
 
 # -----------------------------------------------------------------------------
-# 2) fix_project：改 Info.plist（文件 App 可见性 / bundle id / 显示名）
+# 1.5) --box：把工程改造成 RenPyBox（一个 ipa 装多个游戏）
 # -----------------------------------------------------------------------------
+#  * 改写 base/main.py 的 predefined_searchpath() / path_to_saves()：
+#    读 Documents/current_game.txt 决定加载哪个游戏、存档按 slug 分开。
+#  * base/game -> base/picker（选择器），base/game 只留 zz_ios_patch / zz_ios_build。
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PY="${PYTHON:-python3}"
 
+if [ "$BOX" = "1" ]; then
+    log "box: turning the project into RenPyBox"
+    "$PY" "$SCRIPT_DIR/box_main_patch.py" "$XCODE_OUT"
+fi
+
+# -----------------------------------------------------------------------------
+# 2) fix_project：改 Info.plist（文件 App 可见性 / bundle id / 显示名）
+# -----------------------------------------------------------------------------
 ENGINE_NAME="$(basename "$PROJECT")"
 [ -n "$DISPLAY_NAME" ] || DISPLAY_NAME="$ENGINE_NAME"
 [ -n "$BUNDLE_ID" ]    || BUNDLE_ID="com.domain.$(echo "$ENGINE_NAME" | tr -cd 'A-Za-z0-9')"

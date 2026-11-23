@@ -155,6 +155,23 @@ init -2000 python:
 
     def _renpy_ios_apply():
 
+        # ------------------------------------------------------------------
+        # RenPyBox（一个 ipa 装多个游戏）模式：加载哪个游戏由 base/main.py 的
+        # predefined_searchpath() 决定 —— 它读 <Documents>/current_game.txt，
+        # 把 <Documents>/games/<slug>/game 插进 searchpath。
+        #
+        # 这种情况下**不要**再走下面那套"Documents/game 外部素材目录"逻辑，
+        # 否则会跟 box 的游戏目录串味（比如把旧的 Documents/game 又插到最前面）。
+        # 显示修正、image_size 容错这些照样生效。
+        # ------------------------------------------------------------------
+        if _ios_os.environ.get("RENPY_IOS_BOX"):
+            print("[renpy-ios] box mode; searchpath is handled by base/main.py")
+            try:
+                renpy.config.developer = False
+            except Exception:
+                pass
+            return
+
         added = [ ]
         found = [ ]
 

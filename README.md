@@ -20,17 +20,22 @@ Sideloadly / LiveContainer 自己签。
 
 ```
 scripts/
-  zz_ios_patch.rpy     运行期补丁：把 Documents/game* 插进 Ren'Py 的 searchpath
+  zz_ios_patch.rpy     运行期补丁：显示修正 / image_size 容错 / Documents/game* 挂载
   patch_game.py        把游戏 game/ 组装成 ios_create 能吃的项目 + 生成构建规则
   fix_project.py       改 Info.plist（文件 App 可见性 / bundle id / 显示名）、清签名配置
   build_ios_ipa.sh     macOS 上：ios_create → xcodebuild → 组 Payload → .ipa
+  box_project.py       组装 RenPyBox 通用引擎项目（一个 ipa 装多个游戏）
+  box_main_patch.py    改写产物的 base/main.py + 拆 base/game 与 base/picker
 tools/
   make_payload.py      把 ipa 里剔除的图片/音频/.rpa 打成外置素材 zip（可多卷）
+  pack_game.py         把「仓库脚本 + PC 版素材」拼成 Documents/games/<slug>/（给 box 用）
   sync_game_source.py  从 PC 版游戏目录里挑出「该进 git 的小文件」同步到 games/
+box/
+  game/zz_box_picker.rpy   RenPyBox 的开局选择器（零素材，只用 Solid + 文字）
 games/
   <Game>/game/         游戏脚本 + 字体 + 翻译（几十 MB，进 git）
 .github/workflows/
-  build-ios.yml        云端打包（macOS runner）
+  build-ios.yml        云端打包（macOS runner，mode=game / mode=box）
 ```
 
 `renpy_ios` 只放**代码和脚本**。图片/音频/`.rpa` 这些几百 MB 到几 GB 的素材
@@ -172,6 +177,87 @@ bash scripts/build_ios_ipa.sh ... \
 > `ios_create` / `ios_populate` 本身在 Windows / Linux 上也能跑，只有
 > `xcodebuild` 那一步必须 macOS。所以本机上可以先跑到 `work/` + Xcode 工程，
 > 再拿到 Mac 上编。
+
+---
+
+## 二·B、一个 ipa 装多个游戏（RenPyBox）
+
+如果你想要「**装一个 app，以后所有游戏都往里加，打开时先选游戏**」，
+用 `mode=box` 打一个**通用引擎 ipa**（约 60MB，里面没有任何游戏）：
+
+| 东西 | 放在 iPad 上的位置 |
+| --- | --- |
+| 引擎本身 | 装一次就行，以后不用重装 |
+| 游戏 | `<App>/Documents/games/<slug>/game/…`（每个游戏一个文件夹，随时加/删） |
+| 存档 | `<App>/Documents/saves/<slug>/`（每个游戏独立，互不污染） |
+| 当前选择 | `<App>/Documents/current_game.txt`（一次性的，读完就删） |
+
+### 怎么打
+
+Actions → **Build unsigned iOS IPA** → Run workflow：
+
+```
+mode          = box
+display_name  = RenPyBox          # 桌面图标名，随便起
+bundle_id     = com.julyfinal.renpybox
+runner        = macos-15
+```
+
+也可以本地 macOS 打：
+
+```bash
+python3 scripts/box_project.py \
+    --repo "$PWD" --sdk ~/renpy-7.7.3-sdk --out work/RenPyBox --clean
+
+bash scripts/build_ios_ipa.sh \
+    --sdk ~/renpy-7.7.3-sdk \
+    --project work/RenPyBox \
+    --out dist --display-name "RenPyBox" \
+    --bundle-id com.julyfinal.renpybox \
+    --box
+```
+
+### 怎么往 iPad 里加游戏
+
+1. 在本机把「仓库里的脚本」和「PC 版的大素材」拼成一个游戏目录：
+
+   ```powershell
+   python tools\pack_game.py `
+     --slug milkytouch --title "MilkyTouch" `
+     --repo-game "games\MilkyTouch\game" `
+     --media     "D:\path\to\MilkyTouch\MilkyTouch\game" `
+     --out       "dist\games"
+   ```
+
+   产出 `dist\games\milkytouch\`，里面是 `title.txt` + `game/`。
+2. 把这个文件夹（整个 `milkytouch`，不是里面的 `game`）放到
+   `<App>/Documents/games/` 下。Windows 上用 Apple Devices / iTunes 的
+   「文件共享」直接拖，macOS 用 Finder 的「文件」，或者用 USB 工具（本仓库
+   调试时用的是 `pymobiledevice3` 的 AFC）。
+3. 打开 app → 选择器里点这个游戏 → app 会退出 → **再点一次图标**就进游戏了。
+
+> 为什么要退出再点一次：Ren'Py 的脚本列表是在 init 代码之前枚举的，
+> 同一个进程里没法换一套脚本。选择器把选择写进 `current_game.txt` 后退出，
+> 下次启动 `base/main.py` 读到文件就把对应游戏的目录插进 searchpath。
+> 再退出（或杀进程）再打开，就回到选择器。
+
+### 它是怎么实现的
+
+只改了一个文件：`base/main.py`（`scripts/box_main_patch.py` 注入）。
+Ren'Py 引擎只通过 `renpy.__main__` 的这两个函数取路径（见
+`renpy/main.py:350-351` 和 `:473`）：
+
+* `predefined_searchpath(commondir)` → 决定这次启动加载哪套脚本；
+* `path_to_saves(gamedir)` → 决定存档写哪里。
+
+所以 box 包的 `base/` 被拆成：
+
+```
+base/game/     只放 zz_ios_patch.rpyc / zz_ios_build.rpyc（两个模式下都要加载）
+base/picker/   选择器（zz_box_picker.rpyc + 中文字体 SourceHanSansLite.ttf）
+```
+
+`base/game` 永远在 searchpath 里，所以显示修正、`image_size` 容错对每个游戏都生效。
 
 ---
 
