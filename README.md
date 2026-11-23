@@ -224,6 +224,27 @@ dist/payload/assets-manifest.json
 * **SideStore/AltStore 安装的 app 都支持这个**；LiveContainer 里的 app
   数据在 LiveContainer 自己的容器里，Finder 看不到，得走 4.2 的 zip 路线。
 
+### 4.1.2 LiveContainer 用户必读：把这个 app 的「朝向锁」改成横屏
+
+**这是唯一必须手动改的 LiveContainer 设置，不改就会「只有左上角一条画面」。**
+
+LiveContainer → 长按 MilkyTouch / MilfyCity → Settings（齿轮）→
+**Orientation Lock / 朝向锁** → 选 **Landscape（横屏）** → 关掉 app 重新打开。
+
+原因（详见坑 12）：Ren'Py 的 iOS 后端是 SDL2，它建窗口时要问系统「现在是不是横屏」。
+LiveContainer 默认 `LCOrientationLock = Disabled`，此时它没有把宿主的 scene 朝向
+改掉，SDL 拿到的窗口是竖屏 420x912 点（帧缓冲 1260x2736），而屏幕是横屏
+2736x1260 —— 于是 glViewport 只覆盖屏幕左上角一条 1260x246 的带子。
+
+设成 Landscape 后 LiveContainer 会 swizzle
+`UIViewController.__supportedInterfaceOrientations` 等三个方法并强制
+`interfaceOrientation = UIInterfaceOrientationLandscapeRight`，SDL 立刻拿到
+横屏 912x420 点 / 2736x1260 像素，`drawable_viewport = (249, 0, 2238, 1260)`，
+画面正常铺满（1920x1080 内容等比缩放，左右各 249 像素黑边，正常现象）。
+
+用 SideStore / AltStore / Sideloadly 装的不需要这一步（app 用自己 plist 里
+声明的横屏方向）。
+
 ### 4.2 放素材
 
 1. 在 iPad 上把 Release 里的 `assets.part1.zip`、`assets.part2.zip` 下载下来
@@ -351,6 +372,65 @@ Release 配置却写成 `-lpython3.9`，而 `prototype/prebuilt/{release,debug}/
 `ios_create` 的目标目录只要已存在就会问这句话，无头环境里 `input()` 直接
 `EOFError`。所以 `build_ios_ipa.sh` 里 `rm -rf dist/xcode` 之后**不能**再
 `mkdir dist/xcode`——让 `ios_create` 自己建。
+
+### 12. iOS 上画面挤在左上角 / 只看到左侧一条（LiveContainer）
+
+症状：在 LiveContainer 里启动游戏，画面内容只出现在**左上角**（或左侧约 45%），
+其余全黑；但游戏是活的，按钮点得到。
+
+真因（一路查下来的完整链条，**不要**再往 Ren'Py 的数字上找问题）：
+
+1. Ren'Py 的 iOS 显示后端是 SDL2。`gl2draw.pyx` 用
+   `pygame.display.set_mode((0,0), WINDOW_FULLSCREEN_DESKTOP|...)` 建窗口；
+2. SDL 的 `UIKit_CreateWindow` 注释写明 "ignore the size user requested, and make
+   a fullscreen window"，真正的尺寸来自
+   `SDL_uikitvideo.m: UIKit_ComputeViewFrame()`：
+   `frame = screen.bounds`，`landscape = IsLandscape(statusBarOrientation) ||
+   !(supported_orientations & (Portrait|PortraitUpsideDown))`，
+   只有 `fullscreen && (landscape != (frame 宽 > 高))` 时才交换宽高；
+3. `UIKit_GetSupportedOrientations()`（`SDL_uikitwindow.m:418-481`）先取
+   `validOrientations`（app delegate 的 `application:supportedInterfaceOrientationsForWindow:`
+   或主 bundle 的 plist），再读 hint `SDL_IOS_ORIENTATIONS`，最后
+   **`if ((valid & mask) == 0) mask = valid`** —— 交集为空就回退成 app 支持的；
+4. iOS 27 上 `UIApplication.statusBarOrientation` 已废弃且恒为 portrait；
+   LiveContainer 默认 `LCOrientationLock = Disabled` 时，宿主 scene 是竖屏 →
+   `frame` 是竖屏 420x912 点，`landscape = false` → 不交换 → 窗口/帧缓冲是
+   1260x2736（竖屏）；
+5. Ren'Py 按 `(420, 912)` 算布局：`ratio = min(420/1920, 912/1080)`，
+   `physical_box = (0, 338, 420, 236)`，`draw_per_phys = 1260/420 = 3`，
+   于是 `glViewport(0, 1014, 1260, 708)` —— 只覆盖屏幕 y=1014..1260 一条
+   1260x246 的带子，正是肉眼看到的「左上角一条」。
+
+实测数据（`zz_ios_probe.rpy` 写到 `Documents/iosdiag_log.txt`）：
+
+```
+# 坏的时候：raw 值是竖屏
+raw.pg_get_size = (420, 912)      raw.pg_drawable = (1260, 2736)
+draw.physical_box = (0.0, 338.0, 420, 236)
+draw.drawable_viewport = (0.0, 1014.0, 1260.0, 708.0)
+
+# 修好之后：SDL 自己就是横屏
+raw.pg_get_size = (912, 420)      raw.pg_drawable = (2736, 1260)
+draw.physical_box = (83.0, 0.0, 746, 420)
+draw.drawable_viewport = (249.0, 0.0, 2238.0, 1260.0)   # 2736x1260 屏幕里铺满高度
+```
+
+修法：**把 LiveContainer 里这个 app 的 Orientation Lock 设成 Landscape**
+（见 4.1.2）。也可以直接改装置上的
+`Documents/Applications/<bundleid>.app/LCAppInfo.plist` 的
+`LCOrientationLock`（枚举：`Disabled = 0`、`Landscape = 1`、`Portrait = 2`，
+见 LiveContainer 源码 `LiveContainerSwiftUI/Models/LCAppInfo.h`；
+`TweakLoader/UIKit+GuestHooks.m` 的 constructor 会读它并 swizzle
+`__supportedInterfaceOrientations` / `shouldAutorotateToInterfaceOrientation:` /
+`UIWindow setAutorotates:forceUpdateInterfaceOrientation:`，以及
+`FBSSceneParameters initWithXPCDictionary:` 里强制
+`settings.interfaceOrientation`）。
+
+`zz_ios_patch.rpy` 里另外做了两层**兜底**（在 LC 设置正确时都不触发）：
+设 `os.environ["SDL_IOS_ORIENTATIONS"] = "LandscapeLeft LandscapeRight"`
+（可用 `RENPY_IOS_ORIENTATIONS` 覆盖，`none` 关闭），以及把
+`pygame_sdl2.display.get_size` / `get_drawable_size` 在「上报竖屏」时交换宽高。
+兜底只能把画面从「只露左上角一条」改善成「露出左侧 45%」，**根治仍然靠朝向锁**。
 
 ---
 

@@ -28,6 +28,49 @@ init -2000 python:
     import os as _ios_os
     import sys as _ios_sys
 
+    # ------------------------------------------------------------------
+    # 0. 让 SDL 按「横屏」创建窗口（关键，否则画面只显示在左上角）
+    # ------------------------------------------------------------------
+    # SDL2 的 iOS 后端建窗口时这么定尺寸：
+    #   SDL_uikitvideo.m  UIKit_ComputeViewFrame():
+    #       frame     = uiwindow.bounds  （= uiscreen.bounds，竖屏时 420x912 点）
+    #       landscape = IsLandscape(statusBarOrientation) ||
+    #                   !(supported_orientations & (Portrait|PortraitUpsideDown))
+    #       fullscreen 且 landscape != (frame 宽 > 高)  ->  交换 w/h
+    #   SDL_uikitwindow.m  UIKit_GetSupportedOrientations():
+    #       先看 SDL_HINT_ORIENTATIONS（环境变量 SDL_IOS_ORIENTATIONS，空格分隔），
+    #       没设才回落到 info.plist 的 UISupportedInterfaceOrientations。
+    #
+    # 坑：statusBarOrientation 从 iOS 13 起已废弃，iOS 26/27 上恒为 Portrait，
+    # 而 LiveContainer 这类宿主又允许竖屏，于是 landscape=False，不交换 ——
+    # 窗口被当成竖屏 420x912 点、帧缓冲 1260x2736，在横屏屏幕上只能看到
+    # 左上角 1260x1260，其余全黑（真机实测就是这个现象）。
+    #
+    # 真正的修法（iPhone Air / iOS 27.2 真机实测确认）：
+    #   LiveContainer 里把这个 app 的 Orientation Lock 设成 Landscape
+    #   （即 LCAppInfo.plist 的 LCOrientationLock = 1）。
+    #   LC 的 TweakLoader 会 swizzle UIViewController.__supportedInterfaceOrientations
+    #   等三个方法，并强制 scene 的 interfaceOrientation = LandscapeRight，SDL 于是
+    #   拿到横屏窗口：
+    #       raw.pg_get_size   = (912, 420)      raw.pg_drawable = (2736, 1260)
+    #       drawable_viewport = (249, 0, 2238, 1260)  -> 画面正常铺满
+    #   用 SideStore / AltStore / Sideloadly 单独安装时不需要这一步，
+    #   app 自己的 Info.plist 就声明了横屏。
+    #
+    # 下面设 SDL_IOS_ORIENTATIONS 是**额外兜底**：在 iOS 27 + LiveContainer 上
+    # 实测无效 —— UIKit_GetSupportedOrientations() 里 `(valid & mask) == 0` 会把
+    # mask 回退成宿主支持的方向，而 LC 默认是竖屏，所以 hint 被丢弃。留着只是
+    # 以防别的宿主 / 老版本行为不同。
+    # 想关掉：设 RENPY_IOS_ORIENTATIONS=none。
+    if getattr(renpy, "ios", False) or _ios_sys.platform == "ios":
+        _renpy_ios_hint = _ios_os.environ.get("RENPY_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight")
+        if _renpy_ios_hint.strip().lower() != "none":
+            try:
+                _ios_os.environ["SDL_IOS_ORIENTATIONS"] = _renpy_ios_hint
+                print("[renpy-ios] SDL_IOS_ORIENTATIONS=%r" % (_renpy_ios_hint,))
+            except Exception as _e:
+                print("[renpy-ios] cannot set SDL_IOS_ORIENTATIONS: %r" % (_e,))
+
     def _renpy_ios_candidate_dirs():
         """
         返回按优先级排列的外部素材目录候选列表（绝对路径）。
@@ -128,4 +171,83 @@ init -2000 python:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    # 缓解（不是根治）：当 SDL 仍上报竖屏尺寸时，把宽高交换成横屏再交给 Ren'Py。
+    # ------------------------------------------------------------------
+    # 注意：这只让 Ren'Py 算出一份「横屏 viewport」，但底层帧缓冲如果真的只有
+    # 1260 宽，画面仍然会在 x≈1260 处被切掉（真机上实测从「只露左上角一条」
+    # 变成「露出左侧约 45%」）。**根治必须靠 LiveContainer 的朝向锁设成
+    # Landscape**（见上面第 0 段）；朝向锁设对之后 raw 值本来就是横屏，
+    # 这段是完全空操作。
+    # ------------------------------------------------------------------
+    # 现象（未修时）：get_size() = (420,912) 点、get_drawable_size() = (1260,2736)
+    # 像素，renpy/gl2/gl2draw.pyx:538-543 据此算出
+    #   physical_box=(0,338,420,236) -> drawable_viewport=(0,1014,1260,708)
+    # 只覆盖屏幕左上角 1260x246 的一条带。
+    #
+    # 这层包装只在上报尺寸仍是竖屏（w < h）时才交换，正常情况是空操作：
+    #   ratio = min(912/1920, 420/1080) = 0.3889 -> view=(746,420)
+    #   physical_box=(83,0,746,420) -> viewport=(249,0,2238,1260)
+    # gl2draw.pyx 用 `import pygame_sdl2 as pygame` 后按属性查找调用
+    # （:538 `renpy.display.core.get_size()`、:543/:669 `pygame.display.get_drawable_size()`），
+    # 所以替换模块属性即可生效，且必须在 init 阶段（早于 Interface.set_mode）。
+    # 想关掉：设 RENPY_IOS_DISPLAY_MODE=none。
+
+    _renpy_ios_raw_display = { }
+
+    def _renpy_ios_landscape(t):
+        try:
+            if t and len(t) >= 2 and t[0] < t[1]:
+                return (t[1], t[0])
+        except Exception:
+            pass
+        return t
+
+    def _renpy_ios_fix_display_metrics():
+
+        try:
+            if _ios_os.environ.get("RENPY_IOS_DISPLAY_MODE", "auto") == "none":
+                print("[renpy-ios] display metrics fix disabled")
+                return
+        except Exception:
+            pass
+
+        if not (getattr(renpy, "ios", False) or _ios_sys.platform == "ios"):
+            return
+
+        try:
+            import pygame_sdl2 as _pg
+        except Exception as e:
+            print("[renpy-ios] display metrics fix skipped: %r" % (e,))
+            return
+
+        disp = getattr(_pg, "display", None)
+        if disp is None:
+            print("[renpy-ios] display metrics fix skipped: no pygame_sdl2.display")
+            return
+
+        def _wrap(orig):
+            def wrapper(*args, **kwargs):
+                return _renpy_ios_landscape(orig(*args, **kwargs))
+            wrapper._renpy_ios_wrapped = True
+            return wrapper
+
+        patched = [ ]
+
+        for name in ("get_size", "get_drawable_size"):
+            orig = getattr(disp, name, None)
+            if orig is None or getattr(orig, "_renpy_ios_wrapped", False):
+                continue
+            # 保留未包装的原函数，方便诊断（zz_ios_probe.rpy 会读它）。
+            _renpy_ios_raw_display[name] = orig
+            try:
+                setattr(disp, name, _wrap(orig))
+                patched.append(name)
+            except Exception as e:
+                print("[renpy-ios] cannot patch display.%s: %r" % (name, e))
+
+        if patched:
+            print("[renpy-ios] display metrics patched (portrait -> landscape): %s" % (", ".join(patched),))
+
     _renpy_ios_apply()
+    _renpy_ios_fix_display_metrics()
