@@ -670,8 +670,29 @@ python tools/import_saves.py \
 它还会跳过引擎大版本比盒子新的存档（8.x 的档在 7.x 上读不了，摆出来点了就报错），
 默认不动 `persistent`（画廊/音乐解锁），需要时加 `--persistent`。
 
----
+### 15. 进游戏「卡一下然后直接退出」——缺 `gui/window_icon.png`
 
+第一次 interact 时 Ren'Py 会走 `renpy/display/core.py:1080 post_init()` → `set_icon()`
+（`set_icon` 本体在 `renpy/display/core.py:1113`），里面 `renpy.loader.load(config.window_icon)`。
+`config.window_icon` 在 `renpy/config.py:43` 的默认值是 `None`，但几乎所有游戏的 `gui.rpy`
+都会 define 成 `"gui/window_icon.png"`；而 `set_icon` 里那个 `try` 只吞
+`renpy.webloader.DownloadNeeded`，文件不存在时 `IOError` 会一路冒到 script 层：
+
+```
+IOError: Couldn't find file 'gui/window_icon.png'.
+```
+
+表现就是启动画面刚起来（`splashscreen` 里第一个 `renpy.pause`）就退出，游戏目录留下一份
+`traceback.txt`，设备上**不一定**有 .ips 崩溃报告——进程其实是正常退出的。两种常见起因：
+
+* PC 压缩版 / 手游移植版把 `gui/window_icon.png` 删了（它只对桌面窗口图标有意义）；
+* 拷游戏时目录层级错了，比如文件实际在 `game/gui/gui/window_icon.png`。
+
+修法（已写进 `scripts/zz_ios_patch.rpy` 的 0.65 节，`init -1940`）：包一层
+`Interface.set_icon`，加载失败就打一行 `[renpy-ios] window_icon missing, skipped`
+并当作没有图标（iOS 本来也不显示窗口图标）。本地 A/B 验过：去掉守卫必崩，带上守卫正常进游戏。
+
+---
 ## 六、这套流程的核心机制（改代码前请先读）
 
 Ren'Py 的 loader（`renpy/loader.py`）：

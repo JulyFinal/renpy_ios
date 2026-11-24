@@ -370,6 +370,46 @@ init -1950 python:
     _renpy_ios_install_log_tee()
 
 # =============================================================================
+# 0.65 节：window_icon 缺失兜底
+#
+# 为什么要它：Ren'Py 在第一次 interact 时（display/core.py:1080 post_init ->
+# set_icon，本体在 display/core.py:1113）会去 load config.window_icon。它的默认值
+# 是 None（config.py:43），但几乎每个游戏的 gui.rpy 都会 define 成
+# "gui/window_icon.png"。而 set_icon 里那个 try 只吞
+# renpy.webloader.DownloadNeeded，文件不存在时 IOError 会一路冒到 script 层，
+# 任何平台都起不来：
+#     IOError: Couldn't find file 'gui/window_icon.png'.
+# 这个文件只对桌面窗口图标有意义，缺了不该让游戏起不来，所以 iOS 上吞掉它。
+#
+# 修法：包一层 set_icon，加载失败就当作没有图标（iOS 本来也不显示窗口图标）。
+# 不写 renpy.config.window_icon = None，因为游戏的 gui.rpy 在 init 0 还会 define
+# 一次，会盖掉 init -19xx 的赋值；包方法不受 define 优先级影响。
+# =============================================================================
+
+init -1940 python:
+
+    def _renpy_ios_install_icon_guard():
+        try:
+            import renpy.display.core as _ios_dcore
+            if getattr(_ios_dcore.Interface, "_renpy_ios_icon_guard", False):
+                return
+            _ios_orig_set_icon = _ios_dcore.Interface.set_icon
+
+            def _ios_set_icon(self):
+                try:
+                    return _ios_orig_set_icon(self)
+                except Exception:
+                    print("[renpy-ios] window_icon missing, skipped")
+                    return None
+
+            _ios_dcore.Interface.set_icon = _ios_set_icon
+            _ios_dcore.Interface._renpy_ios_icon_guard = True
+        except Exception:
+            pass
+
+    _renpy_ios_install_icon_guard()
+
+# =============================================================================
 # 0.7 节：RenPyBox 模式下的"回到选择器"悬浮按钮
 #
 # 为什么要它：utter_restart() 能在同一个进程里换游戏，但进去之后如果没有出口，
@@ -428,8 +468,9 @@ init 997 python:
     # 槽名规则见 renpy/common/00action_file.rpy:134 __slotname()：
     #     name = str(page) + "-" + str(slot)
     #
-    # 处理：当前页一个存档都没有时，自动跳到第一个有存档的页；
-    # auto / quick 这类非数字页保持不动（由界面上的 A / Q 按钮进入）。
+    # 处理：启动时如果当前页（或 auto/quick 这类特殊页）不在普通存档页上，
+    # 就自动落到第一个有存档的普通页。这样玩家一打开「加载」看到的就是
+    # 普通页里的存档，而不是满屏 auto 自动存档、也不是一整页空槽。
     # ------------------------------------------------------------------
 
     def _renpy_ios_fix_file_page():
@@ -438,10 +479,8 @@ init 997 python:
                 return
             page = getattr(persistent, "_file_page", None)
             if page is None:
-                return
+                page = ""
             page = str(page)
-            if not page.isdigit():
-                return
             try:
                 per_page = int(gui.file_slot_cols) * int(gui.file_slot_rows)
             except Exception:
@@ -458,14 +497,28 @@ init 997 python:
                         return False
                 return False
 
-            if _page_has(int(page)):
+            def _first_full_page():
+                for p in range(1, 21):
+                    if _page_has(p):
+                        return p
+                return None
+
+            if page.isdigit():
+                if _page_has(int(page)):
+                    return
+                target = _first_full_page()
+                if target is not None:
+                    persistent._file_page = str(target)
+                    print("[renpy-ios] file page %s was empty, switched to %d" % (page, target))
                 return
 
-            for p in range(1, 21):
-                if _page_has(p):
-                    persistent._file_page = str(p)
-                    print("[renpy-ios] file page %s was empty, switched to %d" % (page, p))
-                    return
+            # auto / quick 这类特殊页：只有在普通页一个存档都没有时才留着。
+            if page in ("auto", "quick") and _first_full_page() is None:
+                return
+            target = _first_full_page()
+            if target is not None:
+                persistent._file_page = str(target)
+                print("[renpy-ios] file page %r is a special page, switched to %d" % (page, target))
 
         except Exception:
             pass
@@ -474,3 +527,10 @@ init 997 python:
         _renpy_ios_fix_file_page()
     except Exception:
         pass
+
+
+init 996 python:
+
+    # 0.9 节已删除：进游戏自动读存档属于「多余的事」，用户明确不要。
+    # 存档只在「加载」界面里由玩家自己点。
+    pass
