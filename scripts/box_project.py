@@ -9,6 +9,7 @@ box_project.py —— 组装 RenPyBox（"一个 ipa 装多个游戏"的通用引
         game/
             zz_box_picker.rpy      # 开局选择器（repo 里 box/game/zz_box_picker.rpy）
             zz_ios_patch.rpy       # 显示/GUI 修正（repo 里 scripts/zz_ios_patch.rpy）
+            zz_ios_cheat.rpy       # 左上角 GM 按钮 / 改数值面板（scripts/zz_ios_cheat.rpy）
             zz_ios_build.rpy       # 本脚本生成的最小构建配置
             script_version.txt     # 占位，避免 launcher 报版本缺失
             fonts/SourceHanSansLite.ttf   # 2.9MB 中文字体（Ren'Py 默认字体没有中文）
@@ -86,8 +87,9 @@ def main() -> int:
 
     picker_src = repo / "box" / "game" / "zz_box_picker.rpy"
     patch_src = repo / "scripts" / "zz_ios_patch.rpy"
+    cheat_src = repo / "scripts" / "zz_ios_cheat.rpy"
 
-    for p in (picker_src, patch_src):
+    for p in (picker_src, patch_src, cheat_src):
         if not p.is_file():
             log(f"ERROR: missing {p}")
             return 1
@@ -106,6 +108,7 @@ def main() -> int:
 
     shutil.copy2(picker_src, gamedir / "zz_box_picker.rpy")
     shutil.copy2(patch_src, gamedir / "zz_ios_patch.rpy")
+    shutil.copy2(cheat_src, gamedir / "zz_ios_cheat.rpy")
     shutil.copy2(font, gamedir / "fonts" / "SourceHanSansLite.ttf")
 
     (gamedir / "zz_ios_build.rpy").write_text(BUILD_RPY, encoding="utf-8")

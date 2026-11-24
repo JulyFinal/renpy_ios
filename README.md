@@ -21,6 +21,7 @@ Sideloadly / LiveContainer 自己签。
 ```
 scripts/
   zz_ios_patch.rpy     运行期补丁：显示修正 / image_size 容错 / Documents/game* 挂载
+  zz_ios_cheat.rpy     金手指：左上角 GM 按钮 → 改数值 / 改对象字段 / 改 persistent / 命令
   patch_game.py        把游戏 game/ 组装成 ios_create 能吃的项目 + 生成构建规则
   fix_project.py       改 Info.plist（文件 App 可见性 / bundle id / 显示名）、清签名配置
   build_ios_ipa.sh     macOS 上：ios_create → xcodebuild → 组 Payload → .ipa
@@ -302,6 +303,36 @@ base/picker/   选择器（zz_box_picker.rpyc + 中文字体 SourceHanSansLite.t
 的 py3 特性时小心）。
 
 ---
+
+## 二·C、金手指（左上角 GM 按钮）
+
+打包时会自动带上 `scripts/zz_ios_cheat.rpy`（`patch_game.py` 的 `--no-cheat` 可关，
+RenPyBox 模式由 `box_project.py` 一起放进 `base/game/`）。游戏里左上角常驻一个
+半透明 **GM** 按钮，点一下弹出全屏面板，四个页签：
+
+| 页签 | 干什么 |
+| --- | --- |
+| 数值 | 列出 store 里所有 `int` / `float`（money、day、好感度……）。`-` / `+` 按步长加减，`改` 精确输入 |
+| 对象 | store 里的自定义对象（例如 MilfyCity 的 `inventory`），点 `进入` 改它的数字字段，`← 返回` 回上一级 |
+| 持久 | `persistent` 里的数字和 True/False 开关（章节、已解锁的 CG 之类），整局游戏都生效 |
+| 命令 | 输入 Python 表达式/语句直接作用于 store，等价于控制台：`money = 99999`、`inventory.money += 5000` |
+
+操作要点：
+
+* 步长按钮 `1 / 10 / 100 / 1k / 10k / 100k` 管 `-` `+` 一次加多少；
+* 顶部有筛选框，名字多的游戏直接打字过滤；框旁边的小键盘是给没有实体键盘的
+  触屏用的（文本框里点一下会弹系统输入法，两种都行）；
+* 改完立刻生效，`关闭` 收起面板。**改坏了就返回主菜单读档**，所以建议改之前先存一次档；
+* 引擎自己的控制台（`00console.rpy`）在手机上没法用——它靠 `Esc`/右键退出，而且
+  `zz_ios_patch.rpy` 为了手机端干净把 `config.developer` 关掉了，所以才另写了这个。
+
+实现上要注意的两点（改这个文件前先看）：
+
+* 枚举 store 时**不能**用 `isinstance(k, str)` 判断键：Ren'Py 把 store 里的 `str`
+  重绑成了 `unicode`，`persistent` 字段和对象属性都是字节串键（`default` 语句建的变量
+  才是 unicode 键），一用就整页空白；代码里用 `basestring` 兜住。
+* 所有动态文本都要过 `_cheat_esc()`：Ren'Py 会把 `[` 当插值起点、`{` 当文本标签，
+  文本键盘输入一个 `[` 就会抛 `ends with an open format operation`。
 
 ## 三、生成外置素材包（本机跑，一次性）
 

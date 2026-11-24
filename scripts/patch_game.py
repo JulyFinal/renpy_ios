@@ -6,6 +6,7 @@ patch_game.py —— 把一个 PC 版 Ren'Py 游戏组装成可被 `ios_create` 
 做的事：
   1. 把游戏 game/ 复制到 <out>/game（跳过 saves/、cache/、系统垃圾文件）
   2. 注入 scripts/zz_ios_patch.rpy（运行期把 Documents/game 加进 searchpath）
+     和 scripts/zz_ios_cheat.rpy（左上角 GM 悬浮按钮 / 改数值的面板，--no-cheat 可关）
   3. 生成 <out>/game/zz_ios_build.rpy（构建期规则：改 config.name / 排除源码 /
      可选地把图片音视频剔出 ipa，让它们走外置素材）
   4. 校验 SDK 版本与游戏 script_version.txt 是否兼容
@@ -123,6 +124,7 @@ init 999 python:
 '''
 
 PATCH_RPY = "zz_ios_patch.rpy"
+CHEAT_RPY = "zz_ios_cheat.rpy"
 DIAG_RPY = "zz_ios_diag.rpy"
 
 SKIP_DIRS = {"saves", "cache", "__pycache__", ".git", ".svn"}
@@ -277,6 +279,8 @@ def main(argv=None) -> int:
                     help="keep images/audio out of the ipa (default)")
     ap.add_argument("--no-split", dest="split", action="store_false",
                     help="bundle everything into the ipa")
+    ap.add_argument("--no-cheat", dest="cheat", action="store_false", default=True,
+                    help="don't inject zz_ios_cheat.rpy (the GM / cheat panel)")
     ap.add_argument("--diag", action="store_true",
                     help="inject zz_ios_diag.rpy: draws render geometry on screen")
     args = ap.parse_args(argv)
@@ -325,6 +329,16 @@ def main(argv=None) -> int:
         return 3
     shutil.copy2(patch_src, os.path.join(dst_game, PATCH_RPY))
     log("injected %s" % PATCH_RPY)
+
+    if args.cheat:
+        cheat_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), CHEAT_RPY)
+        if not os.path.isfile(cheat_src):
+            log("ERROR: %s is missing" % cheat_src)
+            return 3
+        shutil.copy2(cheat_src, os.path.join(dst_game, CHEAT_RPY))
+        log("injected %s (GM button / cheat panel)" % CHEAT_RPY)
+    else:
+        log("skipped %s (--no-cheat)" % CHEAT_RPY)
 
     if args.diag:
         diag_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), DIAG_RPY)
