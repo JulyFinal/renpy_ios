@@ -278,7 +278,7 @@ Ren'Py 引擎只通过 `renpy.__main__` 的这两个函数取路径（见
 所以 box 包的 `base/` 被拆成：
 
 ```
-base/game/     只放 zz_ios_patch.rpyc / zz_ios_build.rpyc（两个模式下都要加载）
+base/game/     只放 zz_ios_patch.rpyc / zz_ios_build.rpyc / zz_ios_cheat.rpyc（两个模式下都要加载）
 base/picker/   选择器（zz_box_picker.rpyc + 中文字体 SourceHanSansLite.ttf）
 ```
 
@@ -307,7 +307,8 @@ base/picker/   选择器（zz_box_picker.rpyc + 中文字体 SourceHanSansLite.t
 ## 二·C、金手指（左上角 GM 按钮）
 
 打包时会自动带上 `scripts/zz_ios_cheat.rpy`（`patch_game.py` 的 `--no-cheat` 可关，
-RenPyBox 模式由 `box_project.py` 一起放进 `base/game/`）。游戏里左上角常驻一个
+RenPyBox 模式由 `box_project.py` 打进工程，再由 `box_main_patch.py` 的 `KEEP_IN_GAME`
+留在 `base/game/` —— 放进 `base/picker/` 的话游戏启动后根本加载不到）。游戏里左上角常驻一个
 半透明 **GM** 按钮，点一下弹出全屏面板，四个页签：
 
 | 页签 | 干什么 |
