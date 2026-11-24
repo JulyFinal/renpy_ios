@@ -603,6 +603,41 @@ but no encoding declared; see http://python.org/dev/peps/pep-0263/
 > 只有真正「把文件当脚本执行」才会。用 SDK 自带的 py2
 > （`lib/py2-windows-x86_64/python.exe`）跑一次脚本文件才是可靠判据。
 
+### 14. 搬进盒子的存档「看不见」——页号 + auto 页
+
+用户把 PC 的 `game/saves/` 整个搬进 `Documents/saves/<slug>/` 之后，打开
+「加载」却一片空白。这不是存档没读到（引擎侧 `renpy.list_saved_games()`
+能列出来），而是**界面显示的位置对不上**，有两个独立原因：
+
+**① 页号停在空页。** 当前存档页号存在 `persistent._file_page` 里，
+玩家在 PC 版最后一次存/读停在第 6 页，这个页号会跟着 `persistent` 一起搬过来。
+而每页格子数是 `gui.file_slot_cols * gui.file_slot_rows`（MilkyTouch 3×2=6，
+MilfyCity 2×2=4），第 6 页的槽名是 `6-1`…`6-6`，这些槽根本不存在 → 整页空白。
+
+槽名规则见 `renpy/common/00action_file.rpy:134 __slotname()`：
+`name = str(page) + "-" + str(slot)`，磁盘文件名就是 `<page>-<slot>-LT1.save`。
+
+修法（已写进 `scripts/zz_ios_patch.rpy` 的 0.8 节，`init 997`）：
+启动时若当前页一个存档都没有，就自动跳到第一个有存档的页。
+只在 `RENPY_IOS_BOX=1` 时生效，auto / quick 这类非数字页不动。
+
+**② PC 存档几乎都是 `auto-N` 自动存档。** `auto-1-LT1.save` 只对应加载
+界面的 **A（自动存档）页**，普通页 1、2、3… 里永远没有它的格子。
+所以原样搬过来，玩家在主界面看到的就是「没有存档」。
+
+修法：用 `tools/import_saves.py` 把 `auto-*` / `quick-*` / `_reload-*`
+按时间从新到旧重新编号成普通页槽：
+
+```bash
+python tools/import_saves.py \
+    --saves "C:/path/to/Game/game/saves" \
+    --out   "_stage/saves/milfyCity" \
+    --per-page 4          # = gui.file_slot_cols * gui.file_slot_rows
+```
+
+它还会跳过引擎大版本比盒子新的存档（8.x 的档在 7.x 上读不了，摆出来点了就报错），
+默认不动 `persistent`（画廊/音乐解锁），需要时加 `--persistent`。
+
 ---
 
 ## 六、这套流程的核心机制（改代码前请先读）

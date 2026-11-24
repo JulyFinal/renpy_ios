@@ -411,3 +411,66 @@ init 998 python:
             pass
 
     _renpy_ios_install_box_home()
+
+
+init 997 python:
+
+    # ------------------------------------------------------------------
+    # 0.8 存档页自动纠偏
+    #
+    # 现象：在盒子里点「加载」，一页全是空槽，看起来像"存档丢了"。
+    # 真因：存档页号保存在 persistent._file_page 里。玩 PC 版时最后一次
+    # 存/读停在第 6 页那种位置，这个页号会跟着 persistent 一起被搬到设备上；
+    # 而每个游戏的存档格数是 gui.file_slot_cols * gui.file_slot_rows
+    # （MilkyTouch 3x2=6 格，MilfyCity 2x2=4 格），第 6 页对应的槽名是
+    # "6-1".."6-6"，那些槽根本不存在，于是整页空白。
+    #
+    # 槽名规则见 renpy/common/00action_file.rpy:134 __slotname()：
+    #     name = str(page) + "-" + str(slot)
+    #
+    # 处理：当前页一个存档都没有时，自动跳到第一个有存档的页；
+    # auto / quick 这类非数字页保持不动（由界面上的 A / Q 按钮进入）。
+    # ------------------------------------------------------------------
+
+    def _renpy_ios_fix_file_page():
+        try:
+            if _ios_os.environ.get("RENPY_IOS_BOX", "") != "1":
+                return
+            page = getattr(persistent, "_file_page", None)
+            if page is None:
+                return
+            page = str(page)
+            if not page.isdigit():
+                return
+            try:
+                per_page = int(gui.file_slot_cols) * int(gui.file_slot_rows)
+            except Exception:
+                per_page = 6
+            if per_page <= 0:
+                per_page = 6
+
+            def _page_has(p):
+                for i in range(per_page):
+                    try:
+                        if renpy.can_load("%d-%d" % (p, i + 1)):
+                            return True
+                    except Exception:
+                        return False
+                return False
+
+            if _page_has(int(page)):
+                return
+
+            for p in range(1, 21):
+                if _page_has(p):
+                    persistent._file_page = str(p)
+                    print("[renpy-ios] file page %s was empty, switched to %d" % (page, p))
+                    return
+
+        except Exception:
+            pass
+
+    try:
+        _renpy_ios_fix_file_page()
+    except Exception:
+        pass
