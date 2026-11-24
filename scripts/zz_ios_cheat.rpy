@@ -564,19 +564,41 @@ init 0 python:
     # None 会让它 AttributeError 崩掉（renpy/lint.py:353 `name.lstrip('/')`）。
     # 也要放到 init 0 而不是 -20：游戏 gui.rpy 是 `init offset = -2` 定义的，
     # -20 时 gui.text_font 还没赋值，读不到就只能用 DejaVuSans（中文变豆腐）。
+    # 候选必须真的能被 loader 找到，否则 Ren'Py 会报 font not found（box 模式下
+    # fonts/SourceHanSansLite.ttf 只在 picker 目录里，游戏模式看不到）。
+    def _cheat_use_font(cand):
+        if not cand:
+            return u""
+        try:
+            if renpy.loader.loadable(cand):
+                return u"%s" % (cand,)
+        except Exception:
+            pass
+        return u""
+
     _cheat_font = "DejaVuSans.ttf"
     try:
-        _cheat_cand = _cheat_os.environ.get("RENPY_IOS_CHEAT_FONT", "") or u""
-        if not _cheat_cand and _cheat_os.environ.get("RENPY_IOS_BOX", "") == "1":
-            _cheat_cand = (_cheat_os.environ.get("RENPY_BOX_FONT", "")
-                           or "fonts/SourceHanSansLite.ttf")
-        if not _cheat_cand:
-            # 单独打一个游戏时跟着它自己的正文字体走（汉化游戏都自带中文字体）。
-            try:
-                _cheat_cand = gui.text_font or u""
-            except Exception:
-                _cheat_cand = u""
-        _cheat_font = _cheat_cand or "DejaVuSans.ttf"
+        _cheat_cands = []
+        _env_font = _cheat_os.environ.get("RENPY_IOS_CHEAT_FONT", "") or u""
+        if _env_font:
+            _cheat_cands.append(_env_font)
+        if _cheat_os.environ.get("RENPY_IOS_BOX", "") == "1":
+            _box_font = _cheat_os.environ.get("RENPY_BOX_FONT", "") or u""
+            if _box_font:
+                _cheat_cands.append(_box_font)
+            _cheat_cands.append(u"fonts/SourceHanSansLite.ttf")
+        # 单独打一个游戏时跟着它自己的正文字体走（汉化游戏都自带中文字体）。
+        try:
+            _gui_font = gui.text_font or u""
+        except Exception:
+            _gui_font = u""
+        if _gui_font:
+            _cheat_cands.append(_gui_font)
+        for _cand in _cheat_cands:
+            _picked = _cheat_use_font(_cand)
+            if _picked:
+                _cheat_font = _picked
+                break
     except Exception:
         _cheat_font = "DejaVuSans.ttf"
 

@@ -260,6 +260,7 @@ def patch_main_py(main_py: Path) -> bool:
 KEEP_IN_GAME = (
     "zz_ios_patch.rpyc",
     "zz_ios_build.rpyc",
+    "zz_ios_cheat.rpyc",
     "script_version.txt",
 )
 
