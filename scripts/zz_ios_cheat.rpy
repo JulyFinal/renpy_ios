@@ -33,6 +33,7 @@ init -100 python:
 
     import os as _cheat_os
     import sys as _cheat_sys
+    import time as _cheat_timem
 
     # py2 里大整数是 long，要一起算进来。
     try:
@@ -62,6 +63,14 @@ init -100 python:
     # 常见「钱 / 点数」关键字，命中的排最前。
     _CHEAT_HOT = ("money", "cash", "gold", "coin", "dollar", "score", "points", "fund")
 
+    # 名字本身就是「钱」的字段：数值页顶部固定铺一行。
+    # MilfyCity 的钱是 inventory.money（对象属性），不是 store 变量，
+    # 不铺这一行的话用户在数值页里根本翻不到（2026-11-25 用户原话：
+    # 「我怀疑这个金币的数值不是直接的而是实时计算的？」）。
+    _CHEAT_MONEY_NAMES = set([
+        "money", "cash", "gold", "coins", "coin", "dollars", "dollar", "balance", "wallet",
+    ])
+
     _CHEAT_PLAIN_TYPES = set([
         "str", "unicode", "bytes", "int", "long", "float", "bool",
         "list", "tuple", "dict", "set", "frozenset", "NoneType",
@@ -70,6 +79,15 @@ init -100 python:
         "NoneType",
     ])
 
+    def _cheat_stamp():
+        try:
+            return _cheat_timem.strftime("%H:%M:%S", _cheat_timem.localtime())
+        except Exception:
+            return u"?"
+
+    def _cheat_logfile():
+        return _cheat_os.path.join(renpy.config.gamedir, "_cheat_log.txt")
+
     def _cheat_log(msg):
         # 用 stdout 而不是 print()：minstore 的 print 会强插 checkpoint，init 期不一定安全。
         try:
@@ -77,17 +95,39 @@ init -100 python:
             _cheat_sys.stdout.flush()
         except Exception:
             pass
+        # 再往 gamedir 落一份文件：iOS 上 stdout 全靠 zz_ios_patch.rpy 的 tee，
+        # tee 没装上的时候日志里一行都看不到（2026-11-24 夜间那几次就是），
+        # 这份文件是唯一靠得住的证据。只在少数几个事件里写，不会拖慢。
+        try:
+            try:
+                line = (u"[cheat %s] %s\n" % (_cheat_stamp(), msg)).encode("utf-8")
+            except Exception:
+                line = "[cheat] log-encode-failed\n"
+            f = open(_cheat_logfile(), "ab")
+            try:
+                f.write(line)
+            finally:
+                f.close()
+        except Exception:
+            pass
 
     def _cheat_enabled():
         try:
             if _cheat_os.environ.get("RENPY_IOS_CHEAT", "") in ("0", "off", "no", "false"):
                 return False
-            # box 模式下没有 slug 就是「选游戏」界面，不该挂金手指。
-            if _cheat_os.environ.get("RENPY_IOS_BOX", "") == "1":
-                return bool(_cheat_os.environ.get("RENPY_IOS_SLUG", ""))
+            # 只在「选游戏」那个界面里不挂金手指（它的 gamedir 是 base/picker）。
+            #
+            # 之前是按 RENPY_IOS_SLUG 判断的，但那个环境变量在真机上并不总是传进来：
+            # 一旦为空，游戏里也会判成「选择器」→ 直接 return False，GM 按钮根本没装。
+            # 2026-11-25 已经踩过一次（用户报「找了半天控制台没出来」）。
+            try:
+                if _cheat_os.path.basename(str(renpy.config.gamedir).rstrip("/\\")) == "picker":
+                    return False
+            except Exception:
+                pass
+            return True
         except Exception:
             return False
-        return True
 
     # ---------------------------------------------------------------- 底层读写
 
@@ -346,6 +386,38 @@ init -100 python:
         rv.sort()
         return rv
 
+    def _cheat_money_refs():
+        # [(标签, ref)]：store 里直接叫 money/cash 的变量 + 对象身上的这些字段。
+        rv = []
+        try:
+            sd = _cheat_sd()
+        except Exception:
+            return rv
+        for k in list(sd.keys()):
+            if not isinstance(k, _CHEAT_STRS) or not k or k.startswith("_"):
+                continue
+            if (u"%s" % (k,)).lower() not in _CHEAT_MONEY_NAMES:
+                continue
+            v = sd.get(k)
+            if isinstance(v, bool) or not _cheat_isnum(v):
+                continue
+            rv.append((u"%s" % (k,), ("s", k)))
+        for oname in _cheat_obj_candidates():
+            obj = _cheat_obj_get(oname)
+            if obj is None:
+                continue
+            for f in _cheat_obj_fields(obj):
+                if (u"%s" % (f,)).lower() not in _CHEAT_MONEY_NAMES:
+                    continue
+                try:
+                    v = getattr(obj, f)
+                except Exception:
+                    continue
+                if isinstance(v, bool) or not _cheat_isnum(v):
+                    continue
+                rv.append((u"%s.%s" % (oname, f), ("o", oname, f)))
+        return rv
+
     def _cheat_hot(name):
         low = name.lower()
         for h in _CHEAT_HOT:
@@ -406,17 +478,24 @@ init -100 python:
             return _cheat_filter(rv, q)
 
         d = _cheat_sd()
+        pins = _cheat_money_refs()
+        pinrefs = set([repr(p[1]) for p in pins])
         for k, v in list(d.items()):
             if not isinstance(k, _CHEAT_STRS) or not k or k.startswith("_") or k in _CHEAT_SKIP:
                 continue
             if _cheat_hidden_name(k):
                 continue
+            if repr(("s", k)) in pinrefs:
+                continue
             if isinstance(v, bool):
-                rv.append((k, _cheat_fmt(v), "bool", ("s", k)))
+                rv.append((u"%s" % (k,), _cheat_fmt(v), "bool", ("s", k)))
             elif _cheat_isnum(v):
-                rv.append((k, _cheat_fmt(v), "num", ("s", k)))
+                rv.append((u"%s" % (k,), _cheat_fmt(v), "num", ("s", k)))
         rv.sort(key=lambda r: (_cheat_hot(r[0]), r[0].lower()))
-        return _cheat_filter(rv, q)
+        pr = []
+        for lab, ref in pins:
+            pr.append((u"¥ " + lab, _cheat_fmt(_cheat_rget(ref)), "num", ref))
+        return _cheat_filter(pr + rv, q)
 
     # ---------------------------------------------------------------- 精确输入
 
@@ -544,13 +623,29 @@ init -100 python:
     # ---------------------------------------------------------------- 安装
 
     def _cheat_install():
+        try:
+            open(_cheat_logfile(), "wb").close()
+        except Exception:
+            pass
         if not _cheat_enabled():
-            _cheat_log("disabled")
+            _cheat_log("disabled gamedir=%s" % (renpy.config.gamedir,))
             return
         try:
             if "cheat_bubble" not in config.overlay_screens:
                 config.overlay_screens.append("cheat_bubble")
-            _cheat_log("overlay installed")
+            # always_shown_screens 在 suppress_overlay 的时候也照样显示：
+            # 片头（config.splashscreen_suppress_overlay=True）、主菜单、
+            # 以及游戏里 hide_interface 看 CG 的那次 ui.interact(suppress_overlay=True)，
+            # overlay_screens 都会被藏起来 —— 两处都挂，GM 才「一定看得见」。
+            try:
+                if "cheat_bubble" not in config.always_shown_screens:
+                    config.always_shown_screens.append("cheat_bubble")
+            except Exception:
+                pass
+            _cheat_log("installed gamedir=%s overlay=%d always=%d" % (
+                renpy.config.gamedir,
+                len(config.overlay_screens),
+                len(getattr(config, "always_shown_screens", []) or [])))
         except Exception as e:
             _cheat_log("install failed: %r" % (e,))
 
@@ -642,6 +737,28 @@ init 996 python:
     _cheat_install()
 
 
+init 997 python:
+
+    # 一次性自检：第一次 interact 完把「GM 到底挂上没有」写进 _cheat_log.txt。
+    # 真机上没法看屏幕时，这就是唯一能确定原因的线索。
+    _cheat_diag_done = [False]
+
+    def _cheat_diag_interact():
+        if _cheat_diag_done[0]:
+            return
+        _cheat_diag_done[0] = True
+        try:
+            _cheat_log("interact#1 bubble=%r overlay=%r always=%r gdir=%s" % (
+                renpy.get_screen("cheat_bubble") is not None,
+                "cheat_bubble" in config.overlay_screens,
+                "cheat_bubble" in config.always_shown_screens,
+                renpy.config.gamedir))
+        except Exception as e:
+            _cheat_log("diag failed: %r" % (e,))
+
+    config.interact_callbacks.append(_cheat_diag_interact)
+
+
 screen _cheat_key(lab, act, w=64, h=52, sel=False):
 
     button:
@@ -661,21 +778,31 @@ screen cheat_bubble():
 
     zorder 1680
 
+    # 做得又大又亮：以前是 96x54 的 60% 黑 + 白字，压在花哨的 CG 上根本看不清，
+    # 用户「找了半天」也找不到。现在是黄框 + 深底 + 42 号带描边的 GM。
     button:
-        xpos 10
-        ypos 8
-        xsize 96
-        ysize 54
-        background Solid("#00000060")
-        hover_background Solid("#4a9eff99")
+        xpos 12
+        ypos 10
+        xsize 152
+        ysize 80
+        background Solid("#ffd23fee")
+        hover_background Solid("#8fd0ffee")
+        padding (5, 5)
         action Show("cheat_panel")
 
-        text "GM":
-            style "cheat_text"
-            xalign 0.5
-            yalign 0.5
-            size 28
-            color "#ffffff"
+        frame:
+            background Solid("#0b0f14f2")
+            xysize (142, 70)
+            padding (0, 0)
+
+            text "GM":
+                style "cheat_text"
+                xalign 0.5
+                yalign 0.5
+                size 42
+                bold True
+                color "#ffd23f"
+                outlines [ (3, "#000000cc", 0, 0) ]
 
     # 桌面 / 模拟器上按 F9 也能开，方便调试（iOS 不会发这个键）。
     key "K_F9" action Show("cheat_panel")
