@@ -726,7 +726,9 @@ style cheat_btn is default:
     hover_background Solid("#4a9eff55")
     selected_background Solid("#ffd47944")
 
-style cheat_input is input:
+# 不再用 input（iOS 上点一下/自动聚焦就弹系统键盘，把面板盖住），
+# 文本一律走自己的 cheat_keypad。这个 style 只用来显示字段内容。
+style cheat_field is default:
     size 26
     color "#dde5ef"
     font _cheat_font
@@ -882,17 +884,17 @@ screen cheat_panel():
 
                     text "筛选" style "cheat_dim" yalign 0.5
 
-                    frame:
-                        background Solid("#ffffff18")
-                        padding (10, 4)
+                    button:
+                        style "cheat_btn"
                         xsize 420
                         ysize 44
+                        action Function(_cheat_pad_open, "_cheat_q", "text")
 
-                        input:
-                            value VariableInputValue("_cheat_q")
-                            length 24
-                            pixel_width 396
-                            style "cheat_input"
+                        $ _ct_qshow = _cheat_cut(u"%s" % (_cheat_ui("_cheat_q", u""),), 24)
+                        text _cheat_esc(_ct_qshow if _ct_qshow else u"点这里输入关键字"):
+                            style "cheat_field"
+                            xpos 10
+                            yalign 0.5
 
                     use _cheat_key("小键盘", Function(_cheat_pad_open, "_cheat_q", "text"), 108, 44)
                     use _cheat_key("清空", SetVariable("_cheat_q", u""), 76, 44)
@@ -908,17 +910,17 @@ screen cheat_panel():
 
                     text "输入 Python 表达式或语句，直接作用于 store。例如 money = 99999 或 inventory.money = 5000" style "cheat_dim"
 
-                    frame:
-                        background Solid("#ffffff18")
-                        padding (12, 6)
+                    button:
+                        style "cheat_btn"
                         xsize _cheat_lw()
                         ysize 56
+                        action Function(_cheat_pad_open, "_cheat_cmd", "text")
 
-                        input:
-                            value VariableInputValue("_cheat_cmd")
-                            length 200
-                            pixel_width (_cheat_lw() - 40)
-                            style "cheat_input"
+                        $ _ct_cmdshow = _cheat_cut(u"%s" % (_cheat_ui("_cheat_cmd", u""),), 72)
+                        text _cheat_esc(_ct_cmdshow if _ct_cmdshow else u"点这里输入（用自己的键盘，不弹系统键盘）"):
+                            style "cheat_field"
+                            xpos 12
+                            yalign 0.5
 
                     hbox:
                         spacing 12
