@@ -692,6 +692,27 @@ IOError: Couldn't find file 'gui/window_icon.png'.
 `Interface.set_icon`，加载失败就打一行 `[renpy-ios] window_icon missing, skipped`
 并当作没有图标（iOS 本来也不显示窗口图标）。本地 A/B 验过：去掉守卫必崩，带上守卫正常进游戏。
 
+### 16. 往设备拷游戏：`AFC.push()` 会自己加一层目录，rename 会静默覆盖
+
+`pymobiledevice3` 的 `HouseArrestService.push(local, remote)`（`services/afc.py:645`）在
+`local` 是**目录**时会先把 `remote` 改成 `remote + '/' + basename(local)` 再递归拷：
+
+```python
+if os.path.isdir(local_path):
+    remote_path = posixpath.join(remote_path, os.path.basename(local_path))
+```
+
+所以 `svc.push(LOCAL/'gui', DST/'gui')` 得到的是 `game/gui/gui/…`——整个游戏每个顶层目录
+都会多套一层。正确写法是只给父目录：`svc.push(LOCAL/'gui', DST)`。
+
+多套一层后**不要**直接用 `svc.rename(inner/k, outer/k)` 把内容提上来：AFC 的 rename 遇到
+已存在的目标会直接覆盖、不报错。MilfyCity 就是这样把玩家放进去的新汉化
+（`tl/chinese`，880 个文件 19.1 MB）静默换成了游戏自带的老汉化（21.1 MB），
+日志里还是 `moved 3 fail 0`。
+
+搬之前先 `svc.listdir(outer)` 比对两边同名项；有冲突就先把外层那份备份到别处
+（或确认外层可以丢），再 rename。
+
 ---
 ## 六、这套流程的核心机制（改代码前请先读）
 
